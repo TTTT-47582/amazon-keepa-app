@@ -7,6 +7,7 @@ Keepa API で日本 Amazon から商品を取得し、
 起動コマンド: streamlit run app.py
 """
 
+import os
 import streamlit as st
 from src.keepa_client import search_products
 from src.profit_calc import calculate_profit
@@ -67,6 +68,20 @@ def main():
     with st.sidebar:
         st.header("🔍 スクリーニング条件")
         st.caption("条件は config/screening_filters.yaml でも変更できます")
+
+        # .env に KEEPA_API_KEY があれば自動入力、なければ手入力できる
+        env_key = os.getenv("KEEPA_API_KEY", "")
+        api_key_input = st.text_input(
+            "Keepa API キー",
+            value=env_key,
+            type="password",
+            placeholder=".env 未設定の場合はここに入力",
+            help="Keepa API キー。.env の KEEPA_API_KEY が優先されます。",
+        )
+        # UI 入力 → .env の優先順位でキーを決定
+        api_key = api_key_input or env_key
+
+        st.divider()
 
         with st.expander("📊 販売条件", expanded=True):
             sales_rank_max = st.number_input(
@@ -141,12 +156,20 @@ def main():
 
         st.divider()
         search_btn = st.button(
-            "🔍 商品を検索する", type="primary", use_container_width=True
+            "🔍 商品を検索する",
+            type="primary",
+            use_container_width=True,
+            disabled=not api_key,  # キー未入力時はボタンを無効化
         )
 
     # ================================================
     # メインエリア：検索結果
     # ================================================
+    if not api_key:
+        st.warning("サイドバーに Keepa API キーを入力してください。")
+        _show_usage_guide()
+        return
+
     if search_btn:
         _run_search(
             search_params={
@@ -165,16 +188,17 @@ def main():
                 "fba_referral_fee_percent": dp.get("fba_referral_fee_percent", 15),
                 "fba_fulfillment_fee_usd": dp.get("fba_fulfillment_fee_base_usd", 4.75),
             },
+            api_key=api_key,
         )
     else:
         _show_usage_guide()
 
 
-def _run_search(search_params: dict, profit_params: dict):
+def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
     """商品を検索して利益計算し、結果を表示する"""
     with st.spinner("Keepa で商品を検索中... （初回は数秒かかります）"):
         try:
-            products = search_products(search_params)
+            products = search_products(search_params, api_key=api_key)
         except ValueError as e:
             # API キー未設定など設定エラー
             st.error(str(e))

@@ -23,24 +23,29 @@ _PRICE_FBA = 7      # FBA 新品
 
 
 @st.cache_resource
-def _get_api() -> keepa.Keepa:
-    """Keepa API クライアントを初期化する（シングルトン）"""
-    api_key = os.getenv("KEEPA_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "KEEPA_API_KEY が設定されていません。"
-            "プロジェクトルートに .env ファイルを作成して KEEPA_API_KEY を設定してください。"
-        )
+def _get_api(api_key: str) -> keepa.Keepa:
+    """Keepa API クライアントを初期化する（同じキーならキャッシュを再利用）"""
     return keepa.Keepa(api_key)
 
 
+def _resolve_api_key(api_key: str | None) -> str:
+    """UI 入力キー → .env の順で有効なキーを返す。どちらもなければ例外を投げる"""
+    key = api_key or os.getenv("KEEPA_API_KEY", "")
+    if not key:
+        raise ValueError(
+            "Keepa API キーが設定されていません。"
+            "サイドバーにキーを入力するか、.env に KEEPA_API_KEY を設定してください。"
+        )
+    return key
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def search_products(params: dict) -> list[dict]:
+def search_products(params: dict, api_key: str = "") -> list[dict]:
     """
     Keepa Product Finder で日本 Amazon から商品を検索する。
     同じ条件での再検索は 1 時間キャッシュしてトークン消費を抑える。
     """
-    api = _get_api()
+    api = _get_api(_resolve_api_key(api_key))
 
     # Product Finder パラメータ（価格は Keepa 単位: 円 × 100）
     product_parms = {
