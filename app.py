@@ -167,7 +167,6 @@ def main():
     # ================================================
     if not api_key:
         st.warning("サイドバーに Keepa API キーを入力してください。")
-        _show_usage_guide()
         return
 
     if search_btn:
@@ -191,7 +190,7 @@ def main():
             api_key=api_key,
         )
     else:
-        _show_usage_guide()
+        st.info("👈 左のサイドバーで検索条件を設定して「商品を検索する」を押してください")
 
 
 def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
@@ -321,39 +320,6 @@ def _render_product_list(results: list[dict], target_margin: float):
             )
 
         st.divider()
-
-
-def _show_usage_guide():
-    """初期画面に使い方ガイドを表示する"""
-    st.info("👈 左のサイドバーで検索条件を設定して「商品を検索する」を押してください")
-
-    with st.expander("📖 使い方・利益計算の仕組み", expanded=True):
-        st.markdown(
-            """
-            #### セットアップ
-            1. プロジェクトルートに `.env` ファイルを作成
-            2. `KEEPA_API_KEY=your_key_here` を記載して保存
-            3. `pip install -r requirements.txt` で依存パッケージをインストール
-            4. `streamlit run app.py` でアプリを起動
-
-            #### 検索の流れ
-            1. サイドバーで **販売ランク・価格帯・レビュー条件** を設定
-            2. 「商品を検索する」ボタンを押すと Keepa から商品を取得
-            3. 結果は **利益率の高い順** にリスト表示されます
-
-            #### 利益計算の内訳
-            | 項目 | 内容 |
-            |------|------|
-            | 仕入れ価格 | 日本 Amazon の現在最安値（Keepa より取得） |
-            | 推定販売価格 | 仕入れ USD × 販売倍率（サイドバーで調整） |
-            | 国際送料 | 重量（kg）× 送料単価（config で変更可） |
-            | Amazon 紹介料 | 販売価格 × 15%（概算） |
-            | FBA 手数料 | 重量・サイズに応じた 2024 年 US 料金表ベース |
-            | **推定利益** | **販売価格 − 仕入れ − 国際送料 − Amazon 各手数料** |
-
-            > スクリーニング条件は `config/screening_filters.yaml` を編集して追加・変更できます
-            """
-        )
 
 
 if __name__ == "__main__":
