@@ -1,5 +1,9 @@
 # Amazon Keepa App
 
+## GitHubリポジトリ
+
+https://github.com/TTTT-47582/amazon-keepa-app.git
+
 Keepa API からデータを抽出し、Amazon 商品検索を自動化するツール。
 
 ## プロジェクト概要
