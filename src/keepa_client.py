@@ -41,11 +41,9 @@ def _resolve_api_key(api_key: str | None) -> str:
     return key
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def search_products(params: dict, api_key: str = "") -> list[dict]:
     """
     Keepa Product Finder で日本 Amazon から商品を検索する。
-    同じ条件での再検索は 1 時間キャッシュしてトークン消費を抑える。
     """
     api = _get_api(_resolve_api_key(api_key))
 
@@ -58,8 +56,11 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
         "current_NEW_lte": params["price_max"] * _KEEPA_PRICE_DIVISOR,
     }
 
+    st.info(f"🔍 検索パラメータ: {product_parms}")
+
     # Product Finder は ASIN のリストを返す
     asins = api.product_finder(product_parms, domain="JP", wait=True)
+    st.info(f"📦 取得 ASIN 数: {len(asins) if asins else 0}")
 
     if not asins:
         return []
@@ -70,14 +71,17 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
 
     # ASIN から商品詳細を一括取得（history=False で価格履歴を省略してトークン節約）
     products_raw = api.query(asins, domain="JP", history=False, wait=True)
+    st.info(f"📋 商品詳細取得数: {len(products_raw) if products_raw else 0}")
 
     # 評価・レビュー数でフィルタリングして最大件数に絞る
     results = _parse_products(products_raw)
+    st.info(f"✅ フィルタ後: {len(results)} 件")
     results = [
         p for p in results
         if p["rating"] >= params["rating_min"]
         and p["review_count"] >= params["review_count_min"]
     ]
+    st.info(f"✅ 評価・レビューフィルタ後: {len(results)} 件")
     return results[: params.get("max_results", 20)]
 
 

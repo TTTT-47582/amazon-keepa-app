@@ -210,6 +210,7 @@ def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
             return
         except Exception as e:
             st.error(f"検索中にエラーが発生しました: {e}")
+            st.exception(e)
             return
 
     if not products:
