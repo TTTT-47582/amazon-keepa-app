@@ -4,38 +4,51 @@
 
 https://github.com/TTTT-47582/amazon-keepa-app.git
 
-Keepa API からデータを抽出し、Amazon 商品検索を自動化するツール。
-
 ## プロジェクト概要
 
-- Keepa API を使って商品価格履歴・ランキング・在庫情報を取得
-- 条件指定による商品の自動リサーチ・絞り込み
-- 取得データの保存・分析・可視化
+Keepa API からデータを取得し、**日本 Amazon で仕入れ → 米国 Amazon FBA で販売**できる商品を自動リサーチするツール。
+販売ランク・価格・レビューなどの条件でフィルタリングし、利益計算結果をリスト表示する。
 
 ## 技術スタック
 
 - **言語**: Python 3.11+
+- **UI フレームワーク**: Streamlit（無料デプロイ: Streamlit Community Cloud）
 - **Keepa クライアント**: `keepa` ライブラリ
-- **データ処理**: pandas, numpy
-- **保存**: SQLite（ローカル）または PostgreSQL
-- **可視化 / UI**: Streamlit または CLI（Click）
-- **スケジューリング**: APScheduler または cron
-- **パッケージ管理**: `uv`（推奨）または pip + venv
+- **設定管理**: PyYAML（`config/screening_filters.yaml`）
+- **パッケージ管理**: pip + venv（または `uv`）
+- **環境変数**: `python-dotenv`
 
 ## ディレクトリ構成
 
 ```
 amazon-keepa-app/
+├── app.py                          # Streamlit メインアプリ（起動エントリポイント）
 ├── src/
-│   ├── keepa_client.py   # Keepa API ラッパー
-│   ├── search.py         # 商品検索・フィルタリングロジック
-│   ├── storage.py        # データ保存・取得
-│   └── scheduler.py      # 自動化スケジューラ
-├── scripts/              # 単発実行スクリプト
-├── tests/
-├── .env.example          # 環境変数テンプレート（APIキー等）
+│   ├── __init__.py
+│   ├── keepa_client.py             # Keepa API ラッパー（検索・データ取得）
+│   ├── profit_calc.py              # 利益計算ロジック
+│   └── config_manager.py          # YAML 設定ファイルの読み書き
+├── config/
+│   └── screening_filters.yaml     # スクリーニング条件（後から追加・変更可能）
+├── .env                            # APIキー（git 管理外）
+├── .env.example                    # APIキーのテンプレート
+├── .gitignore
 ├── requirements.txt
-└── README.md
+└── CLAUDE.md
+```
+
+## セットアップ
+
+```bash
+# 依存パッケージのインストール
+pip install -r requirements.txt
+
+# .env ファイルを作成して API キーを設定
+cp .env.example .env
+# → .env を開いて KEEPA_API_KEY を設定
+
+# アプリ起動
+streamlit run app.py
 ```
 
 ## 環境変数
@@ -43,8 +56,16 @@ amazon-keepa-app/
 `.env` ファイルで管理（**絶対に git commit しない**）:
 
 ```
-KEEPA_API_KEY=your_api_key_here
+KEEPA_API_KEY=your_keepa_api_key_here
 ```
+
+> Keepa API キーは https://keepa.com/#!api で取得。
+> `product_finder` は Professional プラン以上が必要。
+
+## スクリーニング条件の追加・変更
+
+`config/screening_filters.yaml` を直接編集するだけで条件を追加できます。
+アプリを再起動すると反映されます。
 
 ## Git 運用ルール
 
@@ -70,7 +91,7 @@ git push origin <ブランチ名>
 - `docs:` ドキュメント変更
 - `test:` テスト追加・修正
 
-例: `feat: add price drop filter to product search`
+例: `feat: add price drop filter to screening`
 
 ### ブランチ命名
 
@@ -79,13 +100,13 @@ git push origin <ブランチ名>
 
 ### 必須: push 前チェック
 
-1. `.env` や APIキーを含むファイルが `git status` に含まれていないか確認
+1. `.env` や API キーを含むファイルが `git status` に含まれていないか確認
 2. `git diff --staged` で変更内容を確認してから commit
 3. commit 直後に `git push` を実行
 
 ## 開発ガイドライン
 
-- Keepa API はトークン消費が大きいため、開発中はレスポンスをローカルにキャッシュする
-- APIキーは `.env` で管理し、コード内にハードコードしない
-- テストはモック or キャッシュ済みデータを使い、実 API を叩かない
-- 型ヒントを積極的に使う
+- Keepa API はトークン消費が大きいため、`@st.cache_data(ttl=3600)` で 1 時間キャッシュする
+- API キーは `.env` で管理し、コード内にハードコードしない
+- コメントは日本語で記載する
+- 型ヒントを積極的に使う（Python 3.11+ の `X | Y` 記法を使用）
