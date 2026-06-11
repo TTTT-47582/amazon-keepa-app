@@ -162,6 +162,15 @@ def main():
             disabled=not api_key,  # キー未入力時はボタンを無効化
         )
 
+    profit_params = {
+        "exchange_rate": exchange_rate,
+        "us_price_markup": us_price_markup,
+        "target_margin": target_margin,
+        "shipping_cost_per_kg_jpy": dp.get("shipping_cost_per_kg_jpy", 1500),
+        "fba_referral_fee_percent": dp.get("fba_referral_fee_percent", 15),
+        "fba_fulfillment_fee_usd": dp.get("fba_fulfillment_fee_base_usd", 4.75),
+    }
+
     # ================================================
     # メインエリア：検索結果
     # ================================================
@@ -170,36 +179,33 @@ def main():
         return
 
     if search_btn:
-        _run_search(
-            search_params={
-                "sales_rank_max": sales_rank_max,
-                "price_min": price_min,
-                "price_max": price_max,
-                "rating_min": rating_min,
-                "review_count_min": review_count_min,
-                "max_results": int(max_results),
-            },
-            profit_params={
-                "exchange_rate": exchange_rate,
-                "us_price_markup": us_price_markup,
-                "target_margin": target_margin,
-                "shipping_cost_per_kg_jpy": dp.get("shipping_cost_per_kg_jpy", 1500),
-                "fba_referral_fee_percent": dp.get("fba_referral_fee_percent", 15),
-                "fba_fulfillment_fee_usd": dp.get("fba_fulfillment_fee_base_usd", 4.75),
-            },
-            api_key=api_key,
+        # 検索実行して結果を session_state に保存する（画面遷移後も表示を維持するため）
+        search_params = {
+            "sales_rank_max": sales_rank_max,
+            "price_min": price_min,
+            "price_max": price_max,
+            "rating_min": rating_min,
+            "review_count_min": review_count_min,
+            "max_results": int(max_results),
+        }
+        _run_search(search_params, profit_params, api_key)
+
+    # 検索済みの結果があれば表示する（ボタンを押していない場合も維持）
+    elif "search_results" in st.session_state and st.session_state["search_results"]:
+        _render_summary_and_list(
+            st.session_state["search_results"],
+            st.session_state.get("profit_params", profit_params),
         )
     else:
         st.info("👈 左のサイドバーで検索条件を設定して「商品を検索する」を押してください")
 
 
 def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
-    """商品を検索して利益計算し、結果を表示する"""
+    """商品を検索して利益計算し、結果を session_state に保存して表示する"""
     with st.spinner("Keepa で商品を検索中... （初回は数秒かかります）"):
         try:
             products = search_products(search_params, api_key=api_key)
         except ValueError as e:
-            # API キー未設定など設定エラー
             st.error(str(e))
             return
         except Exception as e:
@@ -213,16 +219,22 @@ def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
         )
         return
 
-    # 各商品の利益を計算してマージ
+    # 利益計算してソート
     results = [
         {**product, **calculate_profit(product, profit_params)}
         for product in products
     ]
-
-    # 利益率の高い順にソート
     results.sort(key=lambda x: x.get("profit_margin_percent", 0), reverse=True)
 
-    # サマリー集計
+    # 結果を session_state に保存（画面を操作しても消えないようにする）
+    st.session_state["search_results"] = results
+    st.session_state["profit_params"] = profit_params
+
+    _render_summary_and_list(results, profit_params)
+
+
+def _render_summary_and_list(results: list, profit_params: dict):
+    """サマリーと商品リストを表示する"""
     profitable = [r for r in results if r.get("profit_jpy", 0) > 0]
     target_ok = [
         r for r in results if r.get("profit_margin_percent", 0) >= profit_params["target_margin"]
@@ -233,7 +245,6 @@ def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
         f"（利益あり: {len(profitable)} 件 ／ 目標利益率達成: {len(target_ok)} 件）"
     )
 
-    # サマリーメトリクス
     margins = [r.get("profit_margin_percent", 0) for r in results]
     profits = [r.get("profit_jpy", 0) for r in results]
     c1, c2, c3, c4 = st.columns(4)
@@ -243,8 +254,6 @@ def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
     c4.metric("目標達成件数", f"{len(target_ok)} 件")
 
     st.divider()
-
-    # 商品リスト表示
     _render_product_list(results, profit_params["target_margin"])
 
 
