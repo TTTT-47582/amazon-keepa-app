@@ -5,6 +5,8 @@ Keepa API ラッパーモジュール
      API トークンを節約するため検索結果は 1 時間キャッシュします。
 """
 
+from __future__ import annotations
+
 import os
 import keepa
 import streamlit as st
