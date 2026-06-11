@@ -69,11 +69,18 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     fetch_count = min(len(asins), params.get("max_results", 20) * 3)
     asins = list(asins)[:fetch_count]
 
-    # ASIN から商品詳細を一括取得（history=False で価格履歴を省略してトークン節約）
+    # ASIN から商品詳細を一括取得
     products_raw = api.query(asins, domain="JP", history=False, wait=True)
     st.info(f"📋 商品詳細取得数: {len(products_raw) if products_raw else 0}")
 
-    # 評価・レビュー数でフィルタリングして最大件数に絞る
+    # 最初の商品の stats 構造をデバッグ表示
+    if products_raw:
+        p0 = products_raw[0]
+        stats0 = p0.get("stats") or {}
+        st.write("🔎 stats keys:", list(stats0.keys()) if stats0 else "なし")
+        st.write("🔎 stats['current']:", stats0.get("current"))
+        st.write("🔎 csv keys count:", len(p0.get("csv") or []))
+
     results = _parse_products(products_raw)
     st.info(f"✅ フィルタ後: {len(results)} 件")
     results = [
