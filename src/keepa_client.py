@@ -50,13 +50,12 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     api = _get_api(_resolve_api_key(api_key))
 
     # Product Finder パラメータ（価格は Keepa 単位: 円 × 100）
+    # ※ 評価・レビュー数は product_finder 非対応のため取得後にフィルタリングする
     product_parms = {
         "current_SALES_gte": 1,
         "current_SALES_lte": params["sales_rank_max"],
         "current_NEW_gte": params["price_min"] * _KEEPA_PRICE_DIVISOR,
         "current_NEW_lte": params["price_max"] * _KEEPA_PRICE_DIVISOR,
-        "avg_RATING_gte": int(params["rating_min"] * 10),
-        "reviewCount_gte": params["review_count_min"],
     }
 
     # Product Finder は ASIN のリストを返す
@@ -65,13 +64,21 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     if not asins:
         return []
 
-    # トークン節約のため最大件数に切り詰める
-    asins = list(asins)[: params.get("max_results", 20)]
+    # 評価・レビューフィルタ後に必要な件数を確保するため多めに取得する
+    fetch_count = min(len(asins), params.get("max_results", 20) * 3)
+    asins = list(asins)[:fetch_count]
 
     # ASIN から商品詳細を一括取得（history=False で価格履歴を省略してトークン節約）
     products_raw = api.query(asins, domain="JP", history=False, wait=True)
 
-    return _parse_products(products_raw)
+    # 評価・レビュー数でフィルタリングして最大件数に絞る
+    results = _parse_products(products_raw)
+    results = [
+        p for p in results
+        if p["rating"] >= params["rating_min"]
+        and p["review_count"] >= params["review_count_min"]
+    ]
+    return results[: params.get("max_results", 20)]
 
 
 def _parse_products(products_raw: list) -> list[dict]:
