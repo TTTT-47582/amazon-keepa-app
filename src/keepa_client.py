@@ -69,33 +69,37 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     jp_raw = api.query(asins, domain="JP", history=True, update=0, wait=True)
     jp_results = _parse_jp_products(jp_raw)
 
-    # ③ EAN リストを収集して US Amazon で一括検索
-    all_eans: list[str] = []
-    for p in jp_results:
-        all_eans.extend(p.get("ean_list") or [])
-    all_eans = list(dict.fromkeys(all_eans))[:100]  # 重複除去・上限100件
-
+    # ③ EAN リストを収集して US Amazon で一括検索（チェックボックスONのときのみ）
     ean_to_us_price: dict[str, float] = {}
-    if all_eans:
-        us_raw = api.query(all_eans, domain="US", history=True, update=0, wait=True)
-        for us_p in (us_raw or []):
-            if not us_p:
-                continue
-            us_price = _get_us_price(us_p)
-            if us_price is None:
-                continue
-            for ean in (us_p.get("eanList") or []):
-                ean_to_us_price[str(ean)] = us_price
+    if params.get("check_us_listing", True):
+        all_eans: list[str] = []
+        for p in jp_results:
+            all_eans.extend(p.get("ean_list") or [])
+        all_eans = list(dict.fromkeys(all_eans))[:100]  # 重複除去・上限100件
 
-    # ④ US 価格が見つかった商品だけ残す
+        if all_eans:
+            us_raw = api.query(all_eans, domain="US", history=True, update=0, wait=True)
+            for us_p in (us_raw or []):
+                if not us_p:
+                    continue
+                us_price = _get_us_price(us_p)
+                if us_price is None:
+                    continue
+                for ean in (us_p.get("eanList") or []):
+                    ean_to_us_price[str(ean)] = us_price
+
+    # ④ US チェックONなら出品あり商品のみ / OFFなら全商品を対象にする
     matched: list[dict] = []
-    for p in jp_results:
-        for ean in (p.get("ean_list") or []):
-            if str(ean) in ean_to_us_price:
-                p["us_actual_price_usd"] = ean_to_us_price[str(ean)]
-                p["has_us_listing"] = True
-                matched.append(p)
-                break  # 同一商品の重複追加を防ぐ
+    if params.get("check_us_listing", True):
+        for p in jp_results:
+            for ean in (p.get("ean_list") or []):
+                if str(ean) in ean_to_us_price:
+                    p["us_actual_price_usd"] = ean_to_us_price[str(ean)]
+                    p["has_us_listing"] = True
+                    matched.append(p)
+                    break
+    else:
+        matched = jp_results  # チェックOFFは全商品をそのまま使う
 
     # ⑤ 評価・レビューフィルタ（0 = データなしはスキップ）
     filtered = [

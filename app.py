@@ -83,6 +83,12 @@ def main():
 
         st.divider()
 
+        check_us_listing = st.checkbox(
+            "🇺🇸 米国 Amazon に出品されている商品のみ表示",
+            value=True,
+            help="EAN/UPC で US Amazon の出品有無をチェックします。ONにするとAPIトークンを多く消費します。",
+        )
+
         with st.expander("📊 販売条件", expanded=True):
             sales_rank_max = st.number_input(
                 "販売ランク 上限",
@@ -187,6 +193,7 @@ def main():
             "rating_min": rating_min,
             "review_count_min": review_count_min,
             "max_results": int(max_results),
+            "check_us_listing": check_us_listing,
         }
         _run_search(search_params, profit_params, api_key)
 
