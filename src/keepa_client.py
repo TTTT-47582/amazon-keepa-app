@@ -17,7 +17,7 @@ load_dotenv()
 _DIVISOR_JP = 1
 _DIVISOR_US = 100
 
-# csv配列の価格タイプインデックス
+# csv 配列の価格タイプインデックス（stats['current'] にも同じインデックスを使う）
 _IDX_AMAZON   = 0   # Amazon 直販
 _IDX_NEW      = 1   # 新品（マーケットプレイス）
 _IDX_SALES    = 3   # 販売ランク
@@ -45,11 +45,12 @@ def _resolve_api_key(api_key: str | None) -> str:
 @st.cache_data(ttl=1800, show_spinner=False)
 def search_products(params: dict, api_key: str = "") -> list[dict]:
     """
-    日本 Amazon で商品を検索し、米国 Amazon にも出品されている商品のみ返す。
-    同じ条件は 30 分キャッシュしてトークン消費・タイムアウトを防ぐ。
+    日本 Amazon で商品を検索し、利益計算に必要な情報を返す。
+    history=False で現在価格のみ取得することで高速化。
+    同じ条件は 30 分キャッシュしてトークン消費を抑える。
     """
     api = _get_api(_resolve_api_key(api_key))
-    max_results = params.get("max_results", 10)
+    max_results = params.get("max_results", 5)
 
     # ① Product Finder で JP Amazon から ASIN を取得
     product_parms = {
@@ -62,25 +63,33 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     if not asins:
         return []
 
-    # タイムアウト防止のため取得件数を絞る（最大 10 件）
-    asins = list(asins)[:min(len(asins), max_results)]
+    # 件数を絞ってデータ転送量を抑える
+    asins = list(asins)[:max_results]
 
-    # ② JP 商品詳細を取得（キャッシュ優先 + 少数件でタイムアウト防止）
-    jp_raw = api.query(asins, domain="JP", history=True, update=0,
-                       to_datetime=False, wait=True)
+    # ② JP 商品詳細を取得（history=False で現在価格のみ・高速）
+    jp_raw = api.query(
+        asins, domain="JP",
+        history=False,      # 全履歴不要 → 大幅に高速化
+        update=0,           # Keepa キャッシュを使用（クロールしない）
+        wait=True,
+    )
     jp_results = _parse_jp_products(jp_raw)
 
-    # ③ EAN で US Amazon を検索（チェックボックス ON のときのみ・上限 10 件）
+    # ③ EAN で US Amazon を検索（チェックボックス ON のときのみ・上限 5 件）
     ean_to_us_price: dict[str, float] = {}
     if params.get("check_us_listing", True):
         all_eans: list[str] = []
         for p in jp_results:
             all_eans.extend(p.get("ean_list") or [])
-        all_eans = list(dict.fromkeys(all_eans))[:10]  # 上限を絞ってタイムアウト防止
+        all_eans = list(dict.fromkeys(all_eans))[:5]
 
         if all_eans:
-            us_raw = api.query(all_eans, domain="US", history=True, update=0,
-                               to_datetime=False, wait=True)
+            us_raw = api.query(
+                all_eans, domain="US",
+                history=False,
+                update=0,
+                wait=True,
+            )
             for us_p in (us_raw or []):
                 if not us_p:
                     continue
@@ -101,7 +110,7 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
                     matched.append(p)
                     break
     else:
-        matched = jp_results  # チェックOFFは全商品をそのまま使う
+        matched = jp_results
 
     # ⑤ 評価・レビューフィルタ（0 = データなしはスキップ）
     filtered = [
@@ -110,7 +119,7 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
         and (p["review_count"] == 0 or p["review_count"] >= params["review_count_min"])
     ]
 
-    return filtered[: params.get("max_results", 20)]
+    return filtered[:max_results]
 
 
 def _parse_jp_products(products_raw: list) -> list[dict]:
@@ -121,22 +130,15 @@ def _parse_jp_products(products_raw: list) -> list[dict]:
         if not p:
             continue
 
-        csv = p.get("csv") or []
-
-        # 現在の新品価格（新品 → FBA → Amazon 直販 の順で試みる）
-        price_jpy = _latest_price(csv, _IDX_NEW, _DIVISOR_JP)
-        if price_jpy is None:
-            price_jpy = _latest_price(csv, _IDX_NEW_FBA, _DIVISOR_JP)
-        if price_jpy is None:
-            price_jpy = _latest_price(csv, _IDX_AMAZON, _DIVISOR_JP)
+        # 価格取得: stats['current'] → csv の順で試みる
+        price_jpy = _get_jp_price(p)
         if price_jpy is None:
             continue  # 価格不明はスキップ
 
-        # 現在の販売ランク
-        rank_raw = _latest_price(csv, _IDX_SALES, 1)
-        sales_rank = int(rank_raw) if rank_raw and rank_raw > 0 else None
+        # 販売ランク
+        sales_rank = _get_sales_rank(p)
 
-        # 商品サムネイル URL（最初の画像）
+        # サムネイル URL
         images_csv = p.get("imagesCSV") or ""
         first_img = images_csv.split(",")[0] if images_csv else ""
         image_url = (
@@ -166,24 +168,84 @@ def _parse_jp_products(products_raw: list) -> list[dict]:
     return results
 
 
+def _get_jp_price(p: dict) -> float | None:
+    """
+    JP 商品から現在の新品価格（JPY）を取得する。
+    stats['current'] → stats['avg'] → csv の順で試みる。
+    """
+    stats = p.get("stats") or {}
+
+    # stats['current'] から取得（history=False でも使える・高速）
+    current = stats.get("current") or []
+    for idx in [_IDX_NEW, _IDX_NEW_FBA, _IDX_AMAZON]:
+        val = current[idx] if idx < len(current) else None
+        if val and val > 0:
+            return val / _DIVISOR_JP
+
+    # stats['avg'] から取得（90日平均）
+    avg = stats.get("avg") or []
+    for idx in [_IDX_NEW, _IDX_NEW_FBA, _IDX_AMAZON]:
+        val = avg[idx] if idx < len(avg) else None
+        if val and val > 0:
+            return val / _DIVISOR_JP
+
+    # csv から取得（history=True の場合のフォールバック）
+    csv = p.get("csv") or []
+    for idx in [_IDX_NEW, _IDX_NEW_FBA, _IDX_AMAZON]:
+        price = _latest_price(csv, idx, _DIVISOR_JP)
+        if price is not None:
+            return price
+
+    return None
+
+
+def _get_sales_rank(p: dict) -> int | None:
+    """JP 商品から現在の販売ランクを取得する"""
+    stats = p.get("stats") or {}
+    current = stats.get("current") or []
+
+    rank_val = current[_IDX_SALES] if len(current) > _IDX_SALES else None
+    if rank_val and rank_val > 0:
+        return int(rank_val)
+
+    # csv フォールバック
+    csv = p.get("csv") or []
+    rank_raw = _latest_price(csv, _IDX_SALES, 1)
+    return int(rank_raw) if rank_raw and rank_raw > 0 else None
+
+
 def _get_us_price(us_product: dict) -> float | None:
     """US 商品からバイボックス → FBA → 新品 の順で価格（USD）を取得する"""
+    stats = us_product.get("stats") or {}
+
+    # stats['current'] から取得
+    current = stats.get("current") or []
+    for idx in [_IDX_BUYBOX, _IDX_NEW_FBA, _IDX_NEW, _IDX_AMAZON]:
+        val = current[idx] if idx < len(current) else None
+        if val and val > 0:
+            return val / _DIVISOR_US
+
+    # stats['avg'] から取得
+    avg = stats.get("avg") or []
+    for idx in [_IDX_BUYBOX, _IDX_NEW_FBA, _IDX_NEW, _IDX_AMAZON]:
+        val = avg[idx] if idx < len(avg) else None
+        if val and val > 0:
+            return val / _DIVISOR_US
+
+    # csv フォールバック
     csv = us_product.get("csv") or []
-    price = _latest_price(csv, _IDX_BUYBOX, _DIVISOR_US)
-    if price is None:
-        price = _latest_price(csv, _IDX_NEW_FBA, _DIVISOR_US)
-    if price is None:
-        price = _latest_price(csv, _IDX_NEW, _DIVISOR_US)
-    if price is None:
-        price = _latest_price(csv, _IDX_AMAZON, _DIVISOR_US)
-    return price
+    for idx in [_IDX_BUYBOX, _IDX_NEW_FBA, _IDX_NEW, _IDX_AMAZON]:
+        price = _latest_price(csv, idx, _DIVISOR_US)
+        if price is not None:
+            return price
+
+    return None
 
 
 def _latest_price(csv: list, price_type: int, divisor: int) -> float | None:
     """
-    csv配列の指定タイプから最新価格を取得する。
-    keepa csv形式: [time0, price0, time1, price1, ...] のフラット配列。
-    最新価格は末尾要素（奇数インデックス位置）。
+    csv 配列の指定タイプから最新価格を取得する。
+    keepa csv 形式: [time0, price0, time1, price1, ...] のフラット配列。
     """
     if not csv or price_type >= len(csv):
         return None
