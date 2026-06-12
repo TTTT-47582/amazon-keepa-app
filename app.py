@@ -155,8 +155,8 @@ def main():
         max_results = st.number_input(
             "最大表示件数",
             min_value=5,
-            max_value=100,
-            value=20,
+            max_value=20,
+            value=10,
             step=5,
         )
 

@@ -42,15 +42,16 @@ def _resolve_api_key(api_key: str | None) -> str:
     return key
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
 def search_products(params: dict, api_key: str = "") -> list[dict]:
     """
     日本 Amazon で商品を検索し、米国 Amazon にも出品されている商品のみ返す。
-    EAN/UPC で JP↔US をクロスチェックする。
+    同じ条件は 30 分キャッシュしてトークン消費・タイムアウトを防ぐ。
     """
     api = _get_api(_resolve_api_key(api_key))
+    max_results = params.get("max_results", 10)
 
     # ① Product Finder で JP Amazon から ASIN を取得
-    # JPY は円そのまま格納のため ×100 不要
     product_parms = {
         "current_SALES_gte": 1,
         "current_SALES_lte": params["sales_rank_max"],
@@ -61,24 +62,25 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     if not asins:
         return []
 
-    # フィルタ後に必要件数を確保するため多めに取得
-    fetch_count = min(len(asins), params.get("max_results", 20) * 2)
-    asins = list(asins)[:fetch_count]
+    # タイムアウト防止のため取得件数を絞る（最大 10 件）
+    asins = list(asins)[:min(len(asins), max_results)]
 
-    # ② JP 商品詳細を取得（キャッシュ優先で高速化）
-    jp_raw = api.query(asins, domain="JP", history=True, update=0, wait=True)
+    # ② JP 商品詳細を取得（キャッシュ優先 + 少数件でタイムアウト防止）
+    jp_raw = api.query(asins, domain="JP", history=True, update=0,
+                       to_datetime=False, wait=True)
     jp_results = _parse_jp_products(jp_raw)
 
-    # ③ EAN リストを収集して US Amazon で一括検索（チェックボックスONのときのみ）
+    # ③ EAN で US Amazon を検索（チェックボックス ON のときのみ・上限 10 件）
     ean_to_us_price: dict[str, float] = {}
     if params.get("check_us_listing", True):
         all_eans: list[str] = []
         for p in jp_results:
             all_eans.extend(p.get("ean_list") or [])
-        all_eans = list(dict.fromkeys(all_eans))[:100]  # 重複除去・上限100件
+        all_eans = list(dict.fromkeys(all_eans))[:10]  # 上限を絞ってタイムアウト防止
 
         if all_eans:
-            us_raw = api.query(all_eans, domain="US", history=True, update=0, wait=True)
+            us_raw = api.query(all_eans, domain="US", history=True, update=0,
+                               to_datetime=False, wait=True)
             for us_p in (us_raw or []):
                 if not us_p:
                     continue
