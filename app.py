@@ -287,14 +287,16 @@ def _render_product_list(results: list[dict], target_margin: float):
             else:
                 st.markdown("📦")
 
-        # ② 商品名・属性
+        # ② 商品名・属性（タイトルクリックで日本 Amazon 商品ページへ）
         with cols[1]:
             title = item.get("title", "タイトル不明")
-            st.markdown(f"**{title[:60]}{'…' if len(title) > 60 else ''}**")
+            asin = item.get("asin", "")
+            jp_url = f"https://www.amazon.co.jp/dp/{asin}" if asin else "#"
+            st.markdown(f"**[{title[:60]}{'…' if len(title) > 60 else ''}]({jp_url})**")
             rank = item.get("sales_rank")
             rank_str = f"{rank:,}" if rank else "不明"
             st.caption(
-                f"ASIN: {item.get('asin', '-')}　｜　{item.get('category', '-')}"
+                f"ASIN: {asin}　｜　{item.get('category', '-')}"
                 f"　｜　ランク: {rank_str}"
                 f"　｜　⭐ {item.get('rating', 0):.1f}（{item.get('review_count', 0):,} 件）"
             )
