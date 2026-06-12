@@ -42,12 +42,9 @@ def _resolve_api_key(api_key: str | None) -> str:
     return key
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
 def search_products(params: dict, api_key: str = "") -> list[dict]:
     """
     日本 Amazon で商品を検索し、利益計算に必要な情報を返す。
-    history=False で現在価格のみ取得することで高速化。
-    同じ条件は 30 分キャッシュしてトークン消費を抑える。
     """
     api = _get_api(_resolve_api_key(api_key))
     max_results = params.get("max_results", 5)
@@ -59,30 +56,44 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
         "current_NEW_gte": params["price_min"],
         "current_NEW_lte": params["price_max"],
     }
+    st.write(f"🔍 product_finder パラメータ: {product_parms}")
     asins = api.product_finder(product_parms, domain="JP", wait=True)
+    asins = list(asins) if asins else []
+    st.write(f"① ASIN取得数: {len(asins)}件  (先頭5件: {asins[:5]})")
     if not asins:
         return []
 
-    # 件数を絞ってデータ転送量を抑える
-    asins = list(asins)[:max_results]
+    asins = asins[:max_results]
 
-    # ② JP 商品詳細を取得（stats=90 で現在価格のみ・高速）
+    # ② JP 商品詳細を取得
+    st.write(f"② JP詳細クエリ中... ({len(asins)}件)")
     jp_raw = api.query(
         asins, domain="JP",
-        history=False,      # 全履歴不要 → 大幅に高速化
-        stats=90,           # 過去90日の統計（現在価格を含む）を取得
-        update=0,           # Keepa キャッシュを使用（クロールしない）
+        history=False,
+        stats=90,
+        update=0,
         wait=True,
     )
-    jp_results = _parse_jp_products(jp_raw)
+    st.write(f"② JP rawレスポンス数: {len(jp_raw) if jp_raw else 0}件")
 
-    # ③ EAN で US Amazon を検索（チェックボックス ON のときのみ・上限 5 件）
+    # stats の中身を確認
+    if jp_raw:
+        p0 = jp_raw[0]
+        st.write(f"  stats keys: {list((p0.get('stats') or {}).keys())}")
+        cur = (p0.get('stats') or {}).get('current') or []
+        st.write(f"  stats.current (先頭20): {cur[:20]}")
+
+    jp_results = _parse_jp_products(jp_raw)
+    st.write(f"② JP パース後: {len(jp_results)}件")
+
+    # ③ EAN で US Amazon を検索
     ean_to_us_price: dict[str, float] = {}
     if params.get("check_us_listing", True):
         all_eans: list[str] = []
         for p in jp_results:
             all_eans.extend(p.get("ean_list") or [])
         all_eans = list(dict.fromkeys(all_eans))[:5]
+        st.write(f"③ EAN数: {len(all_eans)}件  {all_eans}")
 
         if all_eans:
             us_raw = api.query(
@@ -100,8 +111,11 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
                     continue
                 for ean in (us_p.get("eanList") or []):
                     ean_to_us_price[str(ean)] = us_price
+        st.write(f"③ US価格マッチ数: {len(ean_to_us_price)}件")
+    else:
+        st.write("③ US出品チェック: OFF")
 
-    # ④ US チェックONなら出品あり商品のみ / OFFなら全商品を対象にする
+    # ④ マッチング
     matched: list[dict] = []
     if params.get("check_us_listing", True):
         for p in jp_results:
@@ -113,13 +127,15 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
                     break
     else:
         matched = jp_results
+    st.write(f"④ USマッチ後: {len(matched)}件")
 
-    # ⑤ 評価・レビューフィルタ（0 = データなしはスキップ）
+    # ⑤ 評価・レビューフィルタ
     filtered = [
         p for p in matched
         if (p["rating"] == 0 or p["rating"] >= params["rating_min"])
         and (p["review_count"] == 0 or p["review_count"] >= params["review_count_min"])
     ]
+    st.write(f"⑤ レビューフィルタ後: {len(filtered)}件")
 
     return filtered[:max_results]
 
