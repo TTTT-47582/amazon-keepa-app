@@ -76,12 +76,13 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
 
     results = _parse_products(products_raw)
     st.info(f"✅ パース後: {len(results)} 件")
+    # rating=0 は「Keepaに評価データなし」を意味するため、0の場合はフィルタをスキップする
     results = [
         p for p in results
-        if p["rating"] >= params["rating_min"]
-        and p["review_count"] >= params["review_count_min"]
+        if (p["rating"] == 0 or p["rating"] >= params["rating_min"])
+        and (p["review_count"] == 0 or p["review_count"] >= params["review_count_min"])
     ]
-    st.info(f"✅ 評価・レビューフィルタ後: {len(results)} 件")
+    st.info(f"✅ フィルタ後: {len(results)} 件")
     return results
 
 
