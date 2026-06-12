@@ -65,31 +65,24 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     if not asins:
         return []
 
-    # 評価・レビューフィルタ後に必要な件数を確保するため多めに取得する
-    fetch_count = min(len(asins), params.get("max_results", 20) * 3)
+    # トークン節約のため最大件数に切り詰める（history=True は消費が多いため少なめに）
+    fetch_count = min(len(asins), params.get("max_results", 20))
     asins = list(asins)[:fetch_count]
 
-    # ASIN から商品詳細を一括取得
-    products_raw = api.query(asins, domain="JP", history=False, wait=True)
+    # history=True で csv（価格履歴）を含む全データを取得する
+    # history=False だと stats/csv が返らず価格が取得できないため True が必須
+    products_raw = api.query(asins, domain="JP", history=True, wait=True)
     st.info(f"📋 商品詳細取得数: {len(products_raw) if products_raw else 0}")
 
-    # 最初の商品の stats 構造をデバッグ表示
-    if products_raw:
-        p0 = products_raw[0]
-        stats0 = p0.get("stats") or {}
-        st.write("🔎 stats keys:", list(stats0.keys()) if stats0 else "なし")
-        st.write("🔎 stats['current']:", stats0.get("current"))
-        st.write("🔎 csv keys count:", len(p0.get("csv") or []))
-
     results = _parse_products(products_raw)
-    st.info(f"✅ フィルタ後: {len(results)} 件")
+    st.info(f"✅ パース後: {len(results)} 件")
     results = [
         p for p in results
         if p["rating"] >= params["rating_min"]
         and p["review_count"] >= params["review_count_min"]
     ]
     st.info(f"✅ 評価・レビューフィルタ後: {len(results)} 件")
-    return results[: params.get("max_results", 20)]
+    return results
 
 
 def _parse_products(products_raw: list) -> list[dict]:
@@ -100,22 +93,22 @@ def _parse_products(products_raw: list) -> list[dict]:
         if not p:
             continue
 
-        stats = p.get("stats") or {}
-        current_prices = stats.get("current") or []
+        csv = p.get("csv") or []
 
-        # 現在の新品価格を取得（サードパーティ → FBA の順で試みる）
-        price_jpy = _safe_price(current_prices, _PRICE_NEW)
+        # csv はフラット配列 [time0, price0, time1, price1, ...] の形式
+        # 末尾の価格（最新値）は csv[type_index][-1]
+        # まず新品（index 1）→ FBA（index 10）→ Amazon直販（index 0）の順で試みる
+        price_jpy = _latest_price_from_csv(csv, _PRICE_NEW)
         if price_jpy is None:
-            price_jpy = _safe_price(current_prices, _PRICE_FBA)
+            price_jpy = _latest_price_from_csv(csv, _PRICE_FBA)
         if price_jpy is None:
-            # Amazon 直販価格でも試みる
-            price_jpy = _safe_price(current_prices, _PRICE_AMAZON)
+            price_jpy = _latest_price_from_csv(csv, _PRICE_AMAZON)
         if price_jpy is None:
             continue  # 価格が取得できない商品はスキップ
 
-        # 現在の販売ランク（-1 は取得不可）
-        sales_rank = stats.get("salesRankCurrent", -1)
-        sales_rank = sales_rank if sales_rank and sales_rank > 0 else None
+        # 現在の販売ランク（csv[3] の最新値）
+        rank_raw = _latest_price_from_csv(csv, 3)
+        sales_rank = int(rank_raw) if rank_raw and rank_raw > 0 else None
 
         # 商品サムネイル URL（最初の画像のみ使用）
         images_csv = p.get("imagesCSV") or ""
@@ -147,11 +140,19 @@ def _parse_products(products_raw: list) -> list[dict]:
     return results
 
 
-def _safe_price(prices: list, index: int) -> float | None:
-    """Keepa の価格リストから安全に価格を取得する（-1 や範囲外は None を返す）"""
-    if not prices or index >= len(prices):
+def _latest_price_from_csv(csv: list, price_type: int) -> float | None:
+    """
+    csv配列の指定価格タイプから最新価格を取得する。
+    keepa csv形式: [time0, price0, time1, price1, ...] のフラット配列。
+    最新価格は末尾の要素（奇数インデックス）。
+    """
+    if not csv or price_type >= len(csv):
         return None
-    raw = prices[index]
+    history = csv[price_type]
+    if not history or len(history) < 2:
+        return None
+    # 末尾が価格（奇数インデックス）、その前がタイムスタンプ
+    raw = history[-1]
     if raw is None or raw < 0:
         return None
     return raw / _KEEPA_PRICE_DIVISOR
