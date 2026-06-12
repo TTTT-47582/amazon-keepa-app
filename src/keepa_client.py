@@ -56,33 +56,27 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
         "current_NEW_lte": params["price_max"] * _KEEPA_PRICE_DIVISOR,
     }
 
-    st.info(f"🔍 検索パラメータ: {product_parms}")
-
     # Product Finder は ASIN のリストを返す
     asins = api.product_finder(product_parms, domain="JP", wait=True)
-    st.info(f"📦 取得 ASIN 数: {len(asins) if asins else 0}")
 
     if not asins:
         return []
 
-    # トークン節約のため最大件数に切り詰める（history=True は消費が多いため少なめに）
-    fetch_count = min(len(asins), params.get("max_results", 20))
-    asins = list(asins)[:fetch_count]
+    # 最大件数に切り詰める
+    asins = list(asins)[: params.get("max_results", 20)]
 
-    # history=True で csv（価格履歴）を含む全データを取得する
-    # history=False だと stats/csv が返らず価格が取得できないため True が必須
-    products_raw = api.query(asins, domain="JP", history=True, wait=True)
-    st.info(f"📋 商品詳細取得数: {len(products_raw) if products_raw else 0}")
+    # history=True + update=0 でキャッシュ済みデータを即時返却（更新待ちなしで高速）
+    # history=False だと csv/stats が返らず価格が取得できないため True が必須
+    products_raw = api.query(asins, domain="JP", history=True, update=0, wait=True)
 
     results = _parse_products(products_raw)
-    st.info(f"✅ パース後: {len(results)} 件")
+
     # rating=0 は「Keepaに評価データなし」を意味するため、0の場合はフィルタをスキップする
     results = [
         p for p in results
         if (p["rating"] == 0 or p["rating"] >= params["rating_min"])
         and (p["review_count"] == 0 or p["review_count"] >= params["review_count_min"])
     ]
-    st.info(f"✅ フィルタ後: {len(results)} 件")
     return results
 
 

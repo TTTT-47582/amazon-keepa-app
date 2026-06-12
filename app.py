@@ -202,13 +202,12 @@ def main():
 
 def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
     """商品を検索して利益計算し、結果を session_state に保存して表示する"""
-    st.write("⏳ Keepa に接続しています...")
-    try:
-        products = search_products(search_params, api_key=api_key)
-    except BaseException as e:
-        st.error(f"エラー: {type(e).__name__}: {e}")
-        st.exception(e)
-        return
+    with st.spinner("Keepa で商品を検索中..."):
+        try:
+            products = search_products(search_params, api_key=api_key)
+        except Exception as e:
+            st.error(f"検索エラー: {e}")
+            return
 
     if not products:
         st.warning(
