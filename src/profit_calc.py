@@ -23,8 +23,11 @@ def calculate_profit(product: dict, params: dict) -> dict:
     # 仕入れ価格（JPY → USD 換算）
     purchase_usd = price_jpy / exchange_rate
 
-    # 推定米国販売価格（仕入れ USD × 販売倍率）
-    us_sell_price_usd = purchase_usd * params["us_price_markup"]
+    # 米国販売価格：実際の US 出品価格があればそちらを優先、なければ倍率で推定
+    if product.get("us_actual_price_usd"):
+        us_sell_price_usd = product["us_actual_price_usd"]
+    else:
+        us_sell_price_usd = purchase_usd * params["us_price_markup"]
 
     # 国際送料（重量不明の場合は 500g と仮定）
     weight_kg = ((product.get("weight_g") or 500)) / 1000

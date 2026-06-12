@@ -298,10 +298,12 @@ def _render_product_list(results: list[dict], target_margin: float):
             st.markdown(f"**¥{jp_price:,.0f}**")
             st.caption(f"≈ ${item.get('purchase_usd', 0):.2f}")
 
-        # ④ 推定米国販売価格
+        # ④ 米国販売価格（実際の出品価格 or 推定）
         with cols[3]:
             us_price = item.get("us_sell_price_usd", 0)
-            st.markdown(f"**${us_price:.2f}**")
+            is_actual = bool(item.get("us_actual_price_usd"))
+            label = "実績価格" if is_actual else "推定価格"
+            st.markdown(f"**${us_price:.2f}** `{label}`")
             st.caption(f"≈ ¥{item.get('us_sell_price_jpy', 0):,}")
 
         # ⑤ 諸費用の内訳
