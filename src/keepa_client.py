@@ -66,10 +66,11 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     # 件数を絞ってデータ転送量を抑える
     asins = list(asins)[:max_results]
 
-    # ② JP 商品詳細を取得（history=False で現在価格のみ・高速）
+    # ② JP 商品詳細を取得（stats=90 で現在価格のみ・高速）
     jp_raw = api.query(
         asins, domain="JP",
         history=False,      # 全履歴不要 → 大幅に高速化
+        stats=90,           # 過去90日の統計（現在価格を含む）を取得
         update=0,           # Keepa キャッシュを使用（クロールしない）
         wait=True,
     )
@@ -87,6 +88,7 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
             us_raw = api.query(
                 all_eans, domain="US",
                 history=False,
+                stats=90,
                 update=0,
                 wait=True,
             )
