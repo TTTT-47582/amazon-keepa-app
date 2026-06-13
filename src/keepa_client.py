@@ -69,8 +69,8 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     asins = list(asins) if asins else []
     if not asins:
         return []
-    # デジタル除外・カテゴリフィルタで減る分を見込んで多めに取得（上限15件）
-    fetch_count = min(len(asins), max(max_results * 3, 15))
+    # デジタル除外・カテゴリフィルタで減る分を見込んで多めに取得（上限20件）
+    fetch_count = min(len(asins), min(max_results * 2, 20))
     asins = asins[:fetch_count]
 
     # ② JP 商品詳細を取得（history=False + stats=90 で現在価格のみ・高速）

@@ -180,10 +180,10 @@ def main():
 
         max_results = st.number_input(
             "最大表示件数",
-            min_value=3,
-            max_value=10,
-            value=5,
-            step=1,
+            min_value=5,
+            max_value=15,
+            value=10,
+            step=5,
         )
 
         st.divider()
