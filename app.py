@@ -114,7 +114,7 @@ def main():
 
         with st.expander("🗂 カテゴリ絞り込み", expanded=False):
             st.caption("チェックなし＝すべてのカテゴリを対象")
-            category_options = [
+            _category_options = [
                 "エレクトロニクス",
                 "ホーム&キッチン",
                 "おもちゃ",
@@ -131,12 +131,12 @@ def main():
                 "食品",
                 "アウトドア",
             ]
-            allowed_categories = st.multiselect(
-                "対象カテゴリ",
-                options=category_options,
-                default=[],
-                help="選んだカテゴリの商品のみ表示します。複数選択可。",
-            )
+            allowed_categories = []
+            col_a, col_b = st.columns(2)
+            for i, cat in enumerate(_category_options):
+                col = col_a if i % 2 == 0 else col_b
+                if col.checkbox(cat, key=f"cat_{cat}"):
+                    allowed_categories.append(cat)
 
         with st.expander("⭐ レビュー条件", expanded=True):
             rating_min = st.slider(
