@@ -94,22 +94,30 @@ def main():
                 "販売ランク 上限",
                 min_value=1,
                 max_value=1_000_000,
-                value=df.get("sales_rank_max", 50000),
+                value=df.get("sales_rank_max", 200000),
                 step=5000,
-                help="数値が小さいほど売れている商品です（例: 50,000）",
+                help="数値が小さいほど売れている商品です（例: 200,000）",
             )
             col1, col2 = st.columns(2)
             price_min = col1.number_input(
                 "仕入れ下限(円)",
                 min_value=0,
-                value=df.get("price_min", 500),
+                value=df.get("price_min", 1000),
                 step=100,
             )
             price_max = col2.number_input(
                 "仕入れ上限(円)",
                 min_value=0,
-                value=df.get("price_max", 5000),
+                value=df.get("price_max", 20000),
                 step=100,
+            )
+            max_weight_g = st.number_input(
+                "商品重量 上限 (g)",
+                min_value=100,
+                max_value=5000,
+                value=df.get("max_weight_g", 500),
+                step=100,
+                help="重い商品は国際送料が高くなり赤字になりやすいです。500g以下推奨。",
             )
 
         with st.expander("🗂 カテゴリ絞り込み", expanded=False):
@@ -222,6 +230,7 @@ def main():
             "sales_rank_max": sales_rank_max,
             "price_min": price_min,
             "price_max": price_max,
+            "max_weight_g": int(max_weight_g),
             "rating_min": rating_min,
             "review_count_min": review_count_min,
             "max_results": int(max_results),

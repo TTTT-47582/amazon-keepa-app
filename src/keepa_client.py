@@ -86,7 +86,15 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     # ②-a デジタル商品を自動除外
     jp_results = [p for p in jp_results if not p.get("is_digital")]
 
-    # ②-b カテゴリフィルタ（UI で選択されたカテゴリのみ残す・空=すべて）
+    # ②-b 重量フィルタ（weight_g が不明な商品は通す）
+    max_weight_g = params.get("max_weight_g")
+    if max_weight_g:
+        jp_results = [
+            p for p in jp_results
+            if p.get("weight_g") is None or p["weight_g"] <= max_weight_g
+        ]
+
+    # ②-c カテゴリフィルタ（UI で選択されたカテゴリのみ残す・空=すべて）
     allowed = params.get("allowed_categories") or []
     if allowed:
         jp_results = [
