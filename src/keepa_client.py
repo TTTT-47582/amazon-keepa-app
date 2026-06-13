@@ -24,6 +24,13 @@ _IDX_SALES    = 3   # 販売ランク
 _IDX_NEW_FBA  = 10  # FBA 新品
 _IDX_BUYBOX   = 18  # バイボックス価格
 
+# 自動除外するデジタル・配信系カテゴリのキーワード
+_DIGITAL_CATEGORY_KEYWORDS = {
+    "デジタルミュージック", "Prime Video", "Kindle", "Kindleストア",
+    "ソフトウェア", "PCソフト", "アプリ", "映画・TV",
+    "音楽配信", "電子書籍", "動画配信", "ゲームのダウンロード",
+}
+
 
 @st.cache_resource
 def _get_api(api_key: str) -> keepa.Keepa:
@@ -62,7 +69,9 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
     asins = list(asins) if asins else []
     if not asins:
         return []
-    asins = asins[:max_results]
+    # デジタル除外・カテゴリフィルタで減る分を見込んで多めに取得（上限15件）
+    fetch_count = min(len(asins), max(max_results * 3, 15))
+    asins = asins[:fetch_count]
 
     # ② JP 商品詳細を取得（history=False + stats=90 で現在価格のみ・高速）
     jp_raw = api.query(
@@ -73,6 +82,17 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
         wait=True,
     )
     jp_results = _parse_jp_products(jp_raw)
+
+    # ②-a デジタル商品を自動除外
+    jp_results = [p for p in jp_results if not p.get("is_digital")]
+
+    # ②-b カテゴリフィルタ（UI で選択されたカテゴリのみ残す・空=すべて）
+    allowed = params.get("allowed_categories") or []
+    if allowed:
+        jp_results = [
+            p for p in jp_results
+            if any(kw in p.get("top_category", "") for kw in allowed)
+        ]
 
     # ③ EAN で US Amazon を検索（チェックボックス ON のときのみ・上限 5 件）
     ean_to_us_price: dict[str, float] = {}
@@ -146,14 +166,25 @@ def _parse_jp_products(products_raw: list) -> list[dict]:
             if first_img else None
         )
 
-        # カテゴリ名（最末端）
+        # カテゴリ名（最上位・最末端）
         category_tree = p.get("categoryTree") or []
+        top_category = category_tree[0].get("name", "") if category_tree else ""
         category = category_tree[-1].get("name", "") if category_tree else ""
+
+        # デジタル商品判定（カテゴリ名 or productGroup で判定）
+        product_group = p.get("productGroup") or ""
+        all_category_names = " ".join(n.get("name", "") for n in category_tree)
+        is_digital = any(
+            kw in all_category_names or kw in product_group
+            for kw in _DIGITAL_CATEGORY_KEYWORDS
+        )
 
         results.append({
             "asin": p.get("asin", ""),
             "title": p.get("title") or "タイトル不明",
+            "top_category": top_category,
             "category": category,
+            "is_digital": is_digital,
             "image_url": image_url,
             "rating": (p.get("avgRating") or 0) / 10,
             "review_count": p.get("reviewCount") or 0,

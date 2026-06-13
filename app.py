@@ -112,6 +112,32 @@ def main():
                 step=100,
             )
 
+        with st.expander("🗂 カテゴリ絞り込み", expanded=False):
+            st.caption("チェックなし＝すべてのカテゴリを対象")
+            category_options = [
+                "エレクトロニクス",
+                "ホーム&キッチン",
+                "おもちゃ",
+                "スポーツ",
+                "ビューティー",
+                "ヘルス",
+                "ベビー",
+                "ペット用品",
+                "楽器",
+                "文房具",
+                "カー&バイク",
+                "DIY・工具",
+                "ファッション",
+                "食品",
+                "アウトドア",
+            ]
+            allowed_categories = st.multiselect(
+                "対象カテゴリ",
+                options=category_options,
+                default=[],
+                help="選んだカテゴリの商品のみ表示します。複数選択可。",
+            )
+
         with st.expander("⭐ レビュー条件", expanded=True):
             rating_min = st.slider(
                 "最低評価",
@@ -194,6 +220,7 @@ def main():
             "review_count_min": review_count_min,
             "max_results": int(max_results),
             "check_us_listing": check_us_listing,
+            "allowed_categories": allowed_categories,
         }
         _run_search(search_params, profit_params, api_key)
 
