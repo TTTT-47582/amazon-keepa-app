@@ -8,10 +8,28 @@ Keepa API で日本 Amazon から商品を取得し、
 """
 
 import os
+import requests
 import streamlit as st
 from src.keepa_client import search_products
 from src.profit_calc import calculate_profit
 from src.config_manager import load_filters
+
+
+@st.cache_data(ttl=3600)
+def _fetch_exchange_rate() -> tuple[float, str]:
+    """Frankfurter API から USD→JPY レートを取得する（1時間キャッシュ）"""
+    try:
+        resp = requests.get(
+            "https://api.frankfurter.app/latest?from=USD&to=JPY",
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        rate = float(data["rates"]["JPY"])
+        date = data.get("date", "")
+        return rate, date
+    except Exception:
+        return 150.0, ""
 
 # ページ設定（必ず最初に呼び出す）
 st.set_page_config(
@@ -162,11 +180,16 @@ def main():
             )
 
         with st.expander("💰 利益計算設定", expanded=True):
+            live_rate, rate_date = _fetch_exchange_rate()
+            if rate_date:
+                st.caption(f"💱 現在レート: 1 USD = ¥{live_rate:.2f}（{rate_date} 更新）")
+            else:
+                st.caption("💱 為替レートの取得に失敗しました。手動で入力してください。")
             exchange_rate = st.number_input(
                 "為替レート (1 USD = X 円)",
                 min_value=100.0,
                 max_value=250.0,
-                value=float(dp.get("exchange_rate_jpy_per_usd", 150.0)),
+                value=live_rate,
                 step=1.0,
             )
             us_price_markup = st.slider(
