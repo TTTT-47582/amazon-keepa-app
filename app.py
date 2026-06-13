@@ -177,6 +177,11 @@ def main():
                 step=5,
                 help="この利益率以上の商品を緑色でハイライト",
             )
+            filter_by_margin = st.checkbox(
+                "目標利益率未満を除外する",
+                value=True,
+                help="ONにすると目標利益率を下回る商品は表示しません",
+            )
 
         max_results = st.number_input(
             "最大表示件数",
@@ -198,6 +203,7 @@ def main():
         "exchange_rate": exchange_rate,
         "us_price_markup": us_price_markup,
         "target_margin": target_margin,
+        "filter_by_margin": filter_by_margin,
         "shipping_cost_per_kg_jpy": dp.get("shipping_cost_per_kg_jpy", 1500),
         "fba_referral_fee_percent": dp.get("fba_referral_fee_percent", 15),
         "fba_fulfillment_fee_usd": dp.get("fba_fulfillment_fee_base_usd", 4.75),
@@ -256,6 +262,18 @@ def _run_search(search_params: dict, profit_params: dict, api_key: str = ""):
         for product in products
     ]
     results.sort(key=lambda x: x.get("profit_margin_percent", 0), reverse=True)
+
+    # 目標利益率フィルタ（チェックONのとき目標未満を除外）
+    if profit_params.get("filter_by_margin"):
+        target = profit_params["target_margin"]
+        results = [r for r in results if r.get("profit_margin_percent", 0) >= target]
+
+    if not results:
+        st.warning(
+            f"目標利益率 {profit_params['target_margin']}% 以上の商品が見つかりませんでした。"
+            "目標利益率を下げるか、「目標利益率未満を除外する」をOFFにして再検索してください。"
+        )
+        return
 
     # 結果を session_state に保存（画面を操作しても消えないようにする）
     st.session_state["search_results"] = results
