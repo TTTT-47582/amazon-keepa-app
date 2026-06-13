@@ -181,17 +181,25 @@ def main():
 
         with st.expander("💰 利益計算設定", expanded=True):
             live_rate, rate_date = _fetch_exchange_rate()
-            if rate_date:
-                st.caption(f"💱 現在レート: 1 USD = ¥{live_rate:.2f}（{rate_date} 更新）")
-            else:
-                st.caption("💱 為替レートの取得に失敗しました。手動で入力してください。")
-            exchange_rate = st.number_input(
-                "為替レート (1 USD = X 円)",
-                min_value=100.0,
-                max_value=250.0,
-                value=live_rate,
-                step=1.0,
+            auto_rate = st.checkbox(
+                "為替レートを自動取得する",
+                value=True,
+                help="ONにすると現在のUSD/JPYレートを自動で反映します",
             )
+            if auto_rate:
+                if rate_date:
+                    st.caption(f"💱 現在レート: 1 USD = ¥{live_rate:.2f}（{rate_date} 更新）")
+                else:
+                    st.caption("⚠️ レート取得失敗。¥150を使用します。")
+                exchange_rate = live_rate
+            else:
+                exchange_rate = st.number_input(
+                    "為替レート (1 USD = X 円)",
+                    min_value=100.0,
+                    max_value=250.0,
+                    value=float(dp.get("exchange_rate_jpy_per_usd", 150.0)),
+                    step=1.0,
+                )
             us_price_markup = st.slider(
                 "米国販売価格の倍率",
                 min_value=1.5,
