@@ -85,7 +85,7 @@ def main():
 
         check_us_listing = st.checkbox(
             "🇺🇸 米国 Amazon に出品されている商品のみ表示",
-            value=True,
+            value=False,
             help="EAN/UPC で US Amazon の出品有無をチェックします。ONにするとAPIトークンを多く消費します。",
         )
 
