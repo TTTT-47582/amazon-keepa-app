@@ -75,6 +75,10 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
         product_parms["salesRankDrops90_gte"] = params["rank_drops_90_min"]
     if params.get("rank_drops_90_max"):
         product_parms["salesRankDrops90_lte"] = params["rank_drops_90_max"]
+    if params.get("avg90_new_min"):
+        product_parms["avg90_COUNT_NEW_gte"] = params["avg90_new_min"]
+    if params.get("avg90_new_max"):
+        product_parms["avg90_COUNT_NEW_lte"] = params["avg90_new_max"]
     if params.get("oos_90_min"):
         product_parms["outOfStockPercentage90_gte"] = params["oos_90_min"]
     if params.get("oos_90_max"):

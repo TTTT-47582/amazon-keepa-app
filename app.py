@@ -189,13 +189,24 @@ def main():
                 "最大", min_value=0, value=0, step=1, key="rank_drops_max",
             )
 
+            st.markdown("**🆕 新品アイテム数 - 90日平均**")
+            st.caption("競合セラー数の平均。少ないほど競争が少ない")
+            col5, col6 = st.columns(2)
+            avg90_new_min = col5.number_input(
+                "最小", min_value=0, value=0, step=1, key="avg90_new_min",
+            )
+            avg90_new_max = col6.number_input(
+                "最大", min_value=0, value=20, step=1, key="avg90_new_max",
+                help="例: 20以下にすると平均20件以下の競合商品のみ",
+            )
+
             st.markdown("**📦 在庫切れ率 過去90日間 (%)**")
             st.caption("低いほど安定して在庫がある商品")
-            col5, col6 = st.columns(2)
-            oos_min = col5.number_input(
+            col7, col8 = st.columns(2)
+            oos_min = col7.number_input(
                 "最小 (%)", min_value=0, value=0, step=5, key="oos_min",
             )
-            oos_max = col6.number_input(
+            oos_max = col8.number_input(
                 "最大 (%)", min_value=0, value=0, step=5, key="oos_max",
                 help="例: 20以下にすると90日の20%以下しか在庫切れしていない商品のみ",
             )
@@ -308,6 +319,8 @@ def main():
             "seller_max": int(seller_max),
             "rank_drops_90_min": int(rank_drops_min),
             "rank_drops_90_max": int(rank_drops_max),
+            "avg90_new_min": int(avg90_new_min),
+            "avg90_new_max": int(avg90_new_max),
             "oos_90_max": int(oos_max),
             "oos_90_min": int(oos_min),
         }
