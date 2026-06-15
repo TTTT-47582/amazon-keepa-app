@@ -164,6 +164,42 @@ def main():
                 if col.checkbox(cat, key=f"cat_{cat}"):
                     allowed_categories.append(cat)
 
+        with st.expander("📈 詳細条件（Keepa スクリーニング）", expanded=False):
+            st.caption("0 = 制限なし（空白と同じ）")
+
+            st.markdown("**🏪 セラー数（JP 新品出品者数）**")
+            col1, col2 = st.columns(2)
+            seller_min = col1.number_input(
+                "最小", min_value=0, value=0, step=1, key="seller_min",
+                help="最低セラー数。1以上にすると在庫なし商品を除外できます",
+            )
+            seller_max = col2.number_input(
+                "最大", min_value=0, value=0, step=1, key="seller_max",
+                help="最大セラー数。小さくするほど競合が少ない商品に絞れます",
+            )
+
+            st.markdown("**📉 売れ筋ランキング 過去90日間の下落回数**")
+            st.caption("回数が多い＝その期間に多く売れた商品")
+            col3, col4 = st.columns(2)
+            rank_drops_min = col3.number_input(
+                "最小", min_value=0, value=0, step=1, key="rank_drops_min",
+                help="例: 3以上にすると90日で3回以上売れた商品のみ",
+            )
+            rank_drops_max = col4.number_input(
+                "最大", min_value=0, value=0, step=1, key="rank_drops_max",
+            )
+
+            st.markdown("**📦 在庫切れ率 過去90日間 (%)**")
+            st.caption("低いほど安定して在庫がある商品")
+            col5, col6 = st.columns(2)
+            oos_min = col5.number_input(
+                "最小 (%)", min_value=0, value=0, step=5, key="oos_min",
+            )
+            oos_max = col6.number_input(
+                "最大 (%)", min_value=0, value=0, step=5, key="oos_max",
+                help="例: 20以下にすると90日の20%以下しか在庫切れしていない商品のみ",
+            )
+
         with st.expander("⭐ レビュー条件", expanded=True):
             rating_min = st.slider(
                 "最低評価",
@@ -267,6 +303,13 @@ def main():
             "max_results": int(max_results),
             "check_us_listing": check_us_listing,
             "allowed_categories": allowed_categories,
+            # 詳細条件（0 = 制限なし）
+            "seller_min": int(seller_min),
+            "seller_max": int(seller_max),
+            "rank_drops_90_min": int(rank_drops_min),
+            "rank_drops_90_max": int(rank_drops_max),
+            "oos_90_max": int(oos_max),
+            "oos_90_min": int(oos_min),
         }
         _run_search(search_params, profit_params, api_key)
 

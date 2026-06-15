@@ -65,6 +65,20 @@ def search_products(params: dict, api_key: str = "") -> list[dict]:
         "current_NEW_gte": params["price_min"],
         "current_NEW_lte": params["price_max"],
     }
+
+    # 詳細条件（0 = 制限なし = パラメータ追加しない）
+    if params.get("seller_min"):
+        product_parms["current_COUNT_NEW_gte"] = params["seller_min"]
+    if params.get("seller_max"):
+        product_parms["current_COUNT_NEW_lte"] = params["seller_max"]
+    if params.get("rank_drops_90_min"):
+        product_parms["salesRankDrops90_gte"] = params["rank_drops_90_min"]
+    if params.get("rank_drops_90_max"):
+        product_parms["salesRankDrops90_lte"] = params["rank_drops_90_max"]
+    if params.get("oos_90_min"):
+        product_parms["outOfStockPercentage90_gte"] = params["oos_90_min"]
+    if params.get("oos_90_max"):
+        product_parms["outOfStockPercentage90_lte"] = params["oos_90_max"]
     asins = api.product_finder(product_parms, domain="JP", wait=True)
     asins = list(asins) if asins else []
     if not asins:
