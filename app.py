@@ -206,6 +206,7 @@ def _run_processing(
 
         profit = calculate_profit_us(merged, profit_params)
         merged.update(profit)
+        merged["_exchange_rate"] = profit_params["exchange_rate"]
         results.append(merged)
 
     st.session_state["results"] = results
