@@ -18,27 +18,30 @@ import pandas as pd
 def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
     """
     卸問屋Excelから JAN コード・品名・卸価格などを読み取る。
-    シート「商品データ」(先頭シート) の D列=JAN, E列=品名, F列=品番, H列=定価, I列=卸, J列=箱入数。
+    必要列のみ読み込むことで大容量ファイルでも高速。
     """
-    wb = openpyxl.load_workbook(file_buffer, read_only=True, data_only=True)
-    ws = wb[wb.sheetnames[0]]
+    raw = pd.read_excel(
+        file_buffer,
+        sheet_name=0,
+        usecols=[3, 4, 5, 7, 8, 9],  # D, E, F, H, I, J 列のみ
+        header=0,
+        dtype=str,
+        engine="openpyxl",
+    )
+    raw.columns = [
+        "jan_code", "product_name_jp", "part_number",
+        "retail_price", "wholesale_price", "box_qty",
+    ]
 
-    rows = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        jan = str(row[3]).strip() if row[3] else ""
-        if not jan or not jan.isdigit() or len(jan) < 8:
-            continue
-        rows.append({
-            "jan_code": jan,
-            "product_name_jp": str(row[4]).strip() if row[4] else "",
-            "part_number": str(row[5]).strip() if row[5] else "",
-            "retail_price": _to_float(row[7]),
-            "wholesale_price": _to_float(row[8]),
-            "box_qty": _to_int(row[9]),
-        })
+    raw["jan_code"] = raw["jan_code"].fillna("").str.strip()
+    raw = raw[raw["jan_code"].str.match(r"^\d{8,}$", na=False)].copy()
+    raw["retail_price"] = pd.to_numeric(raw["retail_price"], errors="coerce").fillna(0)
+    raw["wholesale_price"] = pd.to_numeric(raw["wholesale_price"], errors="coerce").fillna(0)
+    raw["box_qty"] = pd.to_numeric(raw["box_qty"], errors="coerce").fillna(1).astype(int)
+    raw["product_name_jp"] = raw["product_name_jp"].fillna("")
+    raw["part_number"] = raw["part_number"].fillna("")
 
-    wb.close()
-    return pd.DataFrame(rows)
+    return raw.reset_index(drop=True)
 
 
 # ── ヘッダー配色（元Sheet3と同一） ──
