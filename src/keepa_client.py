@@ -132,6 +132,12 @@ def _parse_us_product(p: dict, use_offers: bool) -> dict:
     if referral_pct and buy_box_price:
         referral_fee = round(buy_box_price * referral_pct / 100, 2)
 
+    # 合算手数料（FBA Pick&Pack + 紹介料）= 元Sheet3のV列と同一
+    total_fee = None
+    if fba_pick_pack is not None:
+        ref = referral_fee or 0
+        total_fee = round(fba_pick_pack + ref, 2)
+
     return {
         "found": True,
         "asin": p.get("asin", ""),
@@ -142,9 +148,7 @@ def _parse_us_product(p: dict, use_offers: bool) -> dict:
         "fbm_seller_count": fbm_count,
         "sales_rank_drops_30": drops_30,
         "package_weight_g": p.get("packageWeight"),
-        "fba_pick_pack_usd": fba_pick_pack,
-        "referral_fee_usd": referral_fee,
-        "referral_fee_pct": referral_pct,
+        "total_amazon_fee_usd": total_fee,
     }
 
 
@@ -152,7 +156,7 @@ def _not_found_result() -> dict:
     return {"found": False, "asin": "", "title": "", "buy_box_price_usd": None,
             "buy_box_seller": "", "fba_seller_count": None, "fbm_seller_count": None,
             "sales_rank_drops_30": None, "package_weight_g": None,
-            "fba_pick_pack_usd": None, "referral_fee_usd": None, "referral_fee_pct": None}
+            "total_amazon_fee_usd": None}
 
 
 def _empty_result(jan: str, error: str = "") -> dict:

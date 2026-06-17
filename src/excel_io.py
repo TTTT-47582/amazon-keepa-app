@@ -70,13 +70,19 @@ def read_keepa_export_sheet(file_buffer, sheet_name: str | int = 1) -> dict[str,
         ean = ean.replace(" ", "")
 
         buy_box_raw = _safe_float(row.iloc[14])  # Col15: Buy Box 現在価格
-        fba_fee_raw = _safe_float(row.iloc[20])   # Col21: FBA Pick&Pack 料金
-        referral_raw = _safe_float(row.iloc[21])   # Col22: 紹介料
         weight_raw = _safe_float(row.iloc[29])     # Col30: パッケージ重さ(g)
 
         fba_count = _safe_int(row.iloc[24])  # Col25: FBA数
         fbm_count = _safe_int(row.iloc[25])  # Col26: FBM数
         drops_30 = _safe_int(row.iloc[5])    # Col6: 30日ランク下落
+
+        # Col43(AQ): FBA手数料 = FBA Pick&Pack + 紹介料の合算値
+        total_fee = _safe_float(row.iloc[42]) if len(row) > 42 else None
+        # フォールバック: col21 + col22
+        if total_fee is None:
+            fba_pp = _safe_float(row.iloc[20]) or 0   # Col21: FBA Pick&Pack
+            referral = _safe_float(row.iloc[21]) or 0  # Col22: 紹介料
+            total_fee = (fba_pp + referral) if (fba_pp + referral) > 0 else None
 
         buy_box_seller = str(row.iloc[16]).strip() if pd.notna(row.iloc[16]) else ""
 
@@ -90,9 +96,7 @@ def read_keepa_export_sheet(file_buffer, sheet_name: str | int = 1) -> dict[str,
             "fbm_seller_count": fbm_count,
             "sales_rank_drops_30": drops_30,
             "package_weight_g": int(weight_raw) if weight_raw else None,
-            "fba_pick_pack_usd": fba_fee_raw,
-            "referral_fee_usd": referral_raw,
-            "referral_fee_pct": None,
+            "total_amazon_fee_usd": total_fee,
         }
 
         if ean not in ean_to_product:
@@ -241,7 +245,8 @@ def write_output_excel(results: list[dict], wholesaler_name: str = "") -> io.Byt
         # U: 仕入＋送料（FBA）= (仕入値 + Weight×送料単価) / 為替レート
         ws.cell(row=n, column=21, value=f"=(W{n}+(X{n}*$AI$2))/$AH$2")
         ws[f"U{n}"].number_format = "0.00"
-        _set_num(ws, n, 22, r.get("amazon_fees_usd"))                   # V: Amazon手数料
+        # V: Amazon手数料（Keepaエクスポートのcol43 FBA手数料 = FBA+紹介料合算）
+        _set_num(ws, n, 22, r.get("total_amazon_fee_usd") or r.get("amazon_fees_usd"))
         # W: 仕入値 = セット内容 × 1本単価 × 1.1（税込）
         ws.cell(row=n, column=23, value=f"=L{n}*N{n}*1.1")
         ws[f"W{n}"].number_format = "0"

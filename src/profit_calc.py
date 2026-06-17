@@ -22,26 +22,28 @@ def calculate_profit_us(item: dict, params: dict) -> dict:
     wholesale_jpy = item.get("wholesale_price") or 0
     sell_usd = item.get("buy_box_price_usd")
     weight_g = item.get("package_weight_g") or 500
-    fba_fee = item.get("fba_pick_pack_usd") or _estimate_fba_fee_us(weight_g)
-    referral_usd = item.get("referral_fee_usd")
+    amazon_fee = item.get("total_amazon_fee_usd")
+    shipping_per_g = 3.0
 
     if not sell_usd or sell_usd <= 0 or wholesale_jpy <= 0 or exchange_rate <= 0:
         return _zero()
 
-    if referral_usd is None:
-        referral_usd = round(sell_usd * 0.15, 2)
+    # Amazon手数料がKeepaデータにない場合は概算
+    if amazon_fee is None:
+        fba = _estimate_fba_fee_us(weight_g)
+        referral = round(sell_usd * 0.15, 2)
+        amazon_fee = round(fba + referral, 2)
 
-    purchase_usd = wholesale_jpy / exchange_rate
-
-    purchase_plus_shipping = round(purchase_usd + fba_fee, 2)
-    amazon_fees = round(referral_usd + fba_fee, 2)
-    profit_usd = round(sell_usd - purchase_plus_shipping - referral_usd, 2)
+    # 元Sheet3と同一の計算式: U = (W + X*3) / 為替レート
+    wholesale_incl_tax = wholesale_jpy * 1.1
+    purchase_plus_shipping = round((wholesale_incl_tax + weight_g * shipping_per_g) / exchange_rate, 2)
+    profit_usd = round(sell_usd - purchase_plus_shipping - amazon_fee, 2)
     profit_jpy = round(profit_usd * exchange_rate)
     margin = round(profit_usd / sell_usd, 4) if sell_usd > 0 else 0
 
     return {
         "purchase_plus_shipping_usd": purchase_plus_shipping,
-        "amazon_fees_usd": amazon_fees,
+        "amazon_fees_usd": amazon_fee,
         "profit_usd": profit_usd,
         "profit_jpy": profit_jpy,
         "profit_margin": margin,
