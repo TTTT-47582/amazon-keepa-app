@@ -13,23 +13,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# JPY は円そのままで格納（÷1）、USD はセント格納のため÷100
-_DIVISOR_JP = 1
 _DIVISOR_US = 100
-
-# csv 配列の価格タイプインデックス（stats['current'] にも同じインデックスを使う）
-_IDX_AMAZON   = 0   # Amazon 直販
-_IDX_NEW      = 1   # 新品（マーケットプレイス）
-_IDX_SALES    = 3   # 販売ランク
-_IDX_NEW_FBA  = 10  # FBA 新品
-_IDX_BUYBOX   = 18  # バイボックス価格
-
-# 自動除外するデジタル・配信系カテゴリのキーワード
-_DIGITAL_CATEGORY_KEYWORDS = {
-    "デジタルミュージック", "Prime Video", "Kindle", "Kindleストア",
-    "ソフトウェア", "PCソフト", "アプリ", "映画・TV",
-    "音楽配信", "電子書籍", "動画配信", "ゲームのダウンロード",
-}
+_IDX_BUYBOX = 18
 
 
 @st.cache_resource
@@ -39,7 +24,7 @@ def _get_api(api_key: str) -> keepa.Keepa:
 
 
 def _resolve_api_key(api_key: str | None) -> str:
-    """UI 入力キー → .env の順で有効なキーを返す。どちらもなければ例外を投げる"""
+    """UI 入力キー → .env の順で有効なキーを返す"""
     key = api_key or os.getenv("KEEPA_API_KEY", "")
     if not key:
         raise ValueError(
@@ -49,267 +34,134 @@ def _resolve_api_key(api_key: str | None) -> str:
     return key
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def search_products(params: dict, api_key: str = "") -> list[dict]:
+def query_jan_codes_us(
+    jan_codes: list[str],
+    api_key: str = "",
+    batch_size: int = 100,
+    use_offers: bool = True,
+    progress_callback=None,
+) -> dict[str, dict]:
     """
-    日本 Amazon で商品を検索し、利益計算に必要な情報を返す。
-    同じ条件は 30 分キャッシュしてトークン消費を抑える。
+    JANコード(EAN)のリストで US Amazon の商品データを一括取得する。
+
+    Returns:
+        {jan_code: product_dict} のマッピング。
+        US に未出品なら product_dict["found"] = False。
     """
     api = _get_api(_resolve_api_key(api_key))
-    max_results = params.get("max_results", 5)
+    results: dict[str, dict] = {}
+    total = len(jan_codes)
 
-    # ① Product Finder で JP Amazon から ASIN を取得
-    product_parms = {
-        "current_SALES_gte": 1,
-        "current_SALES_lte": params["sales_rank_max"],
-        "current_NEW_gte": params["price_min"],
-        "current_NEW_lte": params["price_max"],
-    }
+    for start in range(0, total, batch_size):
+        batch = jan_codes[start : start + batch_size]
 
-    # 詳細条件（0 = 制限なし = パラメータ追加しない）
-    if params.get("seller_min"):
-        product_parms["current_COUNT_NEW_gte"] = params["seller_min"]
-    if params.get("seller_max"):
-        product_parms["current_COUNT_NEW_lte"] = params["seller_max"]
-    if params.get("rank_drops_90_min"):
-        product_parms["salesRankDrops90_gte"] = params["rank_drops_90_min"]
-    if params.get("rank_drops_90_max"):
-        product_parms["salesRankDrops90_lte"] = params["rank_drops_90_max"]
-    if params.get("avg90_new_min"):
-        product_parms["avg90_COUNT_NEW_gte"] = params["avg90_new_min"]
-    if params.get("avg90_new_max"):
-        product_parms["avg90_COUNT_NEW_lte"] = params["avg90_new_max"]
-    if params.get("oos_90_min"):
-        product_parms["outOfStockPercentage90_gte"] = params["oos_90_min"]
-    if params.get("oos_90_max"):
-        product_parms["outOfStockPercentage90_lte"] = params["oos_90_max"]
-    asins = api.product_finder(product_parms, domain="JP", wait=True)
-    asins = list(asins) if asins else []
-    if not asins:
-        return []
-    # デジタル除外・カテゴリフィルタで減る分を見込んで多めに取得（上限30件）
-    fetch_count = min(len(asins), min(max_results * 3, 30))
-    asins = asins[:fetch_count]
-
-    # ② JP 商品詳細を取得（history=False + stats=90 で現在価格のみ・高速）
-    jp_raw = api.query(
-        asins, domain="JP",
-        history=False,
-        stats=90,           # 過去90日の統計（現在価格を含む）を取得
-        update=0,           # Keepa キャッシュを使用
-        wait=True,
-    )
-    jp_results = _parse_jp_products(jp_raw)
-
-    # ②-a デジタル商品を自動除外
-    jp_results = [p for p in jp_results if not p.get("is_digital")]
-
-    # ②-b 重量フィルタ（weight_g が不明な商品は通す）
-    max_weight_g = params.get("max_weight_g")
-    if max_weight_g:
-        jp_results = [
-            p for p in jp_results
-            if p.get("weight_g") is None or p["weight_g"] <= max_weight_g
-        ]
-
-    # ②-c カテゴリフィルタ（UI で選択されたカテゴリのみ残す・空=すべて）
-    allowed = params.get("allowed_categories") or []
-    if allowed:
-        jp_results = [
-            p for p in jp_results
-            if any(kw in p.get("top_category", "") for kw in allowed)
-        ]
-
-    # ③ EAN で US Amazon を検索（チェックボックス ON のときのみ・上限 5 件）
-    ean_to_us_price: dict[str, float] = {}
-    if params.get("check_us_listing", True):
-        all_eans: list[str] = []
-        for p in jp_results:
-            all_eans.extend(p.get("ean_list") or [])
-        all_eans = list(dict.fromkeys(all_eans))[:5]
-
-        if all_eans:
-            us_raw = api.query(
-                all_eans, domain="US",
+        try:
+            raw = api.query(
+                batch,
+                domain="US",
                 history=False,
                 stats=90,
-                update=0,
+                offers=20 if use_offers else None,
+                product_code_is_asin=False,
                 wait=True,
             )
-            for us_p in (us_raw or []):
-                if not us_p:
-                    continue
-                us_price = _get_us_price(us_p)
-                if us_price is None:
-                    continue
-                for ean in (us_p.get("eanList") or []):
-                    ean_to_us_price[str(ean)] = us_price
-
-    # ④ US チェックONなら出品あり商品のみ / OFFなら全商品を対象にする
-    matched: list[dict] = []
-    if params.get("check_us_listing", True):
-        for p in jp_results:
-            for ean in (p.get("ean_list") or []):
-                if str(ean) in ean_to_us_price:
-                    p["us_actual_price_usd"] = ean_to_us_price[str(ean)]
-                    p["has_us_listing"] = True
-                    matched.append(p)
-                    break
-    else:
-        matched = jp_results
-
-    # ⑤ 評価・レビューフィルタ（0 = データなしはスキップ）
-    filtered = [
-        p for p in matched
-        if (p["rating"] == 0 or p["rating"] >= params["rating_min"])
-        and (p["review_count"] == 0 or p["review_count"] >= params["review_count_min"])
-    ]
-
-    return filtered[:max_results]
-
-
-def _parse_jp_products(products_raw: list) -> list[dict]:
-    """Keepa の JP 生レスポンスを扱いやすい辞書形式に変換する"""
-    results = []
-
-    for p in products_raw or []:
-        if not p:
+        except Exception as e:
+            for jan in batch:
+                results.setdefault(jan, _empty_result(jan, str(e)))
+            if progress_callback:
+                progress_callback(min(start + batch_size, total), total)
             continue
 
-        # 価格取得: stats['current'] → csv の順で試みる
-        price_jpy = _get_jp_price(p)
-        if price_jpy is None:
-            continue  # 価格不明はスキップ
+        # レスポンスを JAN コードにマッピング
+        ean_to_product: dict[str, dict] = {}
+        for p in (raw or []):
+            if not p:
+                continue
+            parsed = _parse_us_product(p, use_offers)
+            for ean in (p.get("eanList") or []):
+                ean_str = str(ean)
+                if ean_str not in ean_to_product:
+                    ean_to_product[ean_str] = parsed
 
-        # 販売ランク
-        sales_rank = _get_sales_rank(p)
+        for jan in batch:
+            if jan in ean_to_product:
+                results[jan] = ean_to_product[jan]
+            else:
+                results.setdefault(jan, _not_found_result())
 
-        # サムネイル URL
-        images_csv = p.get("imagesCSV") or ""
-        first_img = images_csv.split(",")[0] if images_csv else ""
-        image_url = (
-            f"https://images-na.ssl-images-amazon.com/images/I/{first_img}"
-            if first_img else None
-        )
-
-        # カテゴリ名（最上位・最末端）
-        category_tree = p.get("categoryTree") or []
-        top_category = category_tree[0].get("name", "") if category_tree else ""
-        category = category_tree[-1].get("name", "") if category_tree else ""
-
-        # デジタル商品判定（カテゴリ名 or productGroup で判定）
-        product_group = p.get("productGroup") or ""
-        all_category_names = " ".join(n.get("name", "") for n in category_tree)
-        is_digital = any(
-            kw in all_category_names or kw in product_group
-            for kw in _DIGITAL_CATEGORY_KEYWORDS
-        )
-
-        results.append({
-            "asin": p.get("asin", ""),
-            "title": p.get("title") or "タイトル不明",
-            "top_category": top_category,
-            "category": category,
-            "is_digital": is_digital,
-            "image_url": image_url,
-            "rating": (p.get("avgRating") or 0) / 10,
-            "review_count": p.get("reviewCount") or 0,
-            "sales_rank": sales_rank,
-            "price_jp_jpy": price_jpy,
-            "weight_g": p.get("packageWeight"),
-            "ean_list": [str(e) for e in (p.get("eanList") or []) if e],
-            "has_us_listing": False,
-            "us_actual_price_usd": None,
-        })
+        if progress_callback:
+            progress_callback(min(start + batch_size, total), total)
 
     return results
 
 
-def _get_jp_price(p: dict) -> float | None:
-    """
-    JP 商品から現在の新品価格（JPY）を取得する。
-    stats['current'] → stats['avg'] → csv の順で試みる。
-    """
-    stats = p.get("stats") or {}
-
-    # stats['current'] から取得（history=False でも使える・高速）
-    current = stats.get("current") or []
-    for idx in [_IDX_NEW, _IDX_NEW_FBA, _IDX_AMAZON]:
-        val = current[idx] if idx < len(current) else None
-        if val and val > 0:
-            return val / _DIVISOR_JP
-
-    # stats['avg'] から取得（90日平均）
-    avg = stats.get("avg") or []
-    for idx in [_IDX_NEW, _IDX_NEW_FBA, _IDX_AMAZON]:
-        val = avg[idx] if idx < len(avg) else None
-        if val and val > 0:
-            return val / _DIVISOR_JP
-
-    # csv から取得（history=True の場合のフォールバック）
-    csv = p.get("csv") or []
-    for idx in [_IDX_NEW, _IDX_NEW_FBA, _IDX_AMAZON]:
-        price = _latest_price(csv, idx, _DIVISOR_JP)
-        if price is not None:
-            return price
-
-    return None
-
-
-def _get_sales_rank(p: dict) -> int | None:
-    """JP 商品から現在の販売ランクを取得する"""
+def _parse_us_product(p: dict, use_offers: bool) -> dict:
+    """Keepa の US 商品レスポンスを必要な項目に変換する"""
     stats = p.get("stats") or {}
     current = stats.get("current") or []
 
-    rank_val = current[_IDX_SALES] if len(current) > _IDX_SALES else None
-    if rank_val and rank_val > 0:
-        return int(rank_val)
+    # Buy Box 価格（USD）
+    buy_box_raw = current[_IDX_BUYBOX] if len(current) > _IDX_BUYBOX else None
+    buy_box_price = buy_box_raw / _DIVISOR_US if buy_box_raw and buy_box_raw > 0 else None
 
-    # csv フォールバック
-    csv = p.get("csv") or []
-    rank_raw = _latest_price(csv, _IDX_SALES, 1)
-    return int(rank_raw) if rank_raw and rank_raw > 0 else None
+    # Buy Box セラー
+    buy_box_seller = ""
+    buy_box_seller_id = stats.get("buyBoxSellerId") or ""
+    if buy_box_seller_id:
+        buy_box_seller = buy_box_seller_id
+
+    # 30日ランク下落回数
+    drops_30 = stats.get("salesRankDrops30")
+
+    # FBA / FBM セラー数（offers から集計）
+    fba_count = None
+    fbm_count = None
+    if use_offers:
+        offers = p.get("offers") or []
+        fba_count = sum(1 for o in offers if o.get("isFBA"))
+        fbm_count = sum(1 for o in offers if not o.get("isFBA"))
+
+    # FBA 手数料
+    fba_fees = p.get("fbaFees") or {}
+    pick_pack_raw = fba_fees.get("pickAndPackFee")
+    fba_pick_pack = pick_pack_raw / _DIVISOR_US if pick_pack_raw and pick_pack_raw > 0 else None
+
+    # 紹介料率
+    referral_pct = p.get("referralFeePercentage")
+    referral_fee = None
+    if referral_pct and buy_box_price:
+        referral_fee = round(buy_box_price * referral_pct / 100, 2)
+
+    return {
+        "found": True,
+        "asin": p.get("asin", ""),
+        "title": p.get("title") or "",
+        "buy_box_price_usd": buy_box_price,
+        "buy_box_seller": buy_box_seller,
+        "fba_seller_count": fba_count,
+        "fbm_seller_count": fbm_count,
+        "sales_rank_drops_30": drops_30,
+        "package_weight_g": p.get("packageWeight"),
+        "fba_pick_pack_usd": fba_pick_pack,
+        "referral_fee_usd": referral_fee,
+        "referral_fee_pct": referral_pct,
+    }
 
 
-def _get_us_price(us_product: dict) -> float | None:
-    """US 商品からバイボックス → FBA → 新品 の順で価格（USD）を取得する"""
-    stats = us_product.get("stats") or {}
-
-    # stats['current'] から取得
-    current = stats.get("current") or []
-    for idx in [_IDX_BUYBOX, _IDX_NEW_FBA, _IDX_NEW, _IDX_AMAZON]:
-        val = current[idx] if idx < len(current) else None
-        if val and val > 0:
-            return val / _DIVISOR_US
-
-    # stats['avg'] から取得
-    avg = stats.get("avg") or []
-    for idx in [_IDX_BUYBOX, _IDX_NEW_FBA, _IDX_NEW, _IDX_AMAZON]:
-        val = avg[idx] if idx < len(avg) else None
-        if val and val > 0:
-            return val / _DIVISOR_US
-
-    # csv フォールバック
-    csv = us_product.get("csv") or []
-    for idx in [_IDX_BUYBOX, _IDX_NEW_FBA, _IDX_NEW, _IDX_AMAZON]:
-        price = _latest_price(csv, idx, _DIVISOR_US)
-        if price is not None:
-            return price
-
-    return None
+def _not_found_result() -> dict:
+    return {"found": False, "asin": "", "title": "", "buy_box_price_usd": None,
+            "buy_box_seller": "", "fba_seller_count": None, "fbm_seller_count": None,
+            "sales_rank_drops_30": None, "package_weight_g": None,
+            "fba_pick_pack_usd": None, "referral_fee_usd": None, "referral_fee_pct": None}
 
 
-def _latest_price(csv: list, price_type: int, divisor: int) -> float | None:
-    """
-    csv 配列の指定タイプから最新価格を取得する。
-    keepa csv 形式: [time0, price0, time1, price1, ...] のフラット配列。
-    """
-    if not csv or price_type >= len(csv):
-        return None
-    history = csv[price_type]
-    if not history or len(history) < 2:
-        return None
-    raw = history[-1]
-    if raw is None or raw < 0:
-        return None
-    return raw / divisor
+def _empty_result(jan: str, error: str = "") -> dict:
+    r = _not_found_result()
+    r["error"] = error
+    return r
+
+
+def estimate_tokens(n_items: int, use_offers: bool = True) -> int:
+    """Keepa API トークン消費量の見積もり"""
+    per_item = 3 if use_offers else 1
+    return n_items * per_item

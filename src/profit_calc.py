@@ -1,109 +1,81 @@
 """
-利益計算モジュール
+利益計算モジュール（卸仕入れ → US Amazon FBA 販売）
 
 計算式:
-  推定米国販売価格 = 仕入れ(JPY) ÷ 為替レート × 販売倍率
-  国際送料        = 重量(kg) × 送料単価(JPY/kg) ÷ 為替レート
-  Amazon 紹介料   = 米国販売価格 × 紹介料率(%)
-  FBA 手数料      = 重量・サイズベースの概算値
-  純利益(USD)     = 販売価格 - 仕入れ - 国際送料 - 紹介料 - FBA 手数料
-  利益率(%)       = 純利益 ÷ 販売価格 × 100
-  ROI(%)          = 純利益 ÷ 仕入れ × 100
+  仕入USD         = 卸価格(JPY) ÷ 為替レート
+  国際送料USD     = 重量(g) × 送料単価(JPY/g) ÷ 為替レート
+  仕入＋送料      = 仕入USD + 国際送料USD + FBA Pick&Pack
+  Amazon手数料    = 紹介料 + FBA Pick&Pack
+  損益(USD)       = 売価USD − 仕入＋送料 − 紹介料
+  利益率          = 損益 ÷ 売価USD
 """
 
+from __future__ import annotations
 
-def calculate_profit(product: dict, params: dict) -> dict:
-    """商品データと計算パラメータから推定利益を計算して返す"""
-    exchange_rate: float = params["exchange_rate"]
-    price_jpy: float = product.get("price_jp_jpy") or 0
 
-    if price_jpy <= 0 or exchange_rate <= 0:
-        return _empty_profit()
+def calculate_profit_us(item: dict, params: dict) -> dict:
+    """
+    卸仕入れ → US FBA 販売の利益計算。
+    item: Keepa結果 + 卸データをマージした辞書
+    params: exchange_rate, shipping_cost_per_g_jpy など
+    """
+    exchange_rate = params.get("exchange_rate", 150.0)
+    shipping_per_g = params.get("shipping_cost_per_g_jpy", 3.0)
 
-    # 仕入れ価格（JPY → USD 換算）
-    purchase_usd = price_jpy / exchange_rate
+    wholesale_jpy = item.get("wholesale_price") or 0
+    sell_usd = item.get("buy_box_price_usd")
+    weight_g = item.get("package_weight_g") or 500
+    fba_fee = item.get("fba_pick_pack_usd") or _estimate_fba_fee_us(weight_g)
+    referral_usd = item.get("referral_fee_usd")
 
-    # 米国販売価格：実際の US 出品価格があればそちらを優先、なければ倍率で推定
-    if product.get("us_actual_price_usd"):
-        us_sell_price_usd = product["us_actual_price_usd"]
-    else:
-        us_sell_price_usd = purchase_usd * params["us_price_markup"]
+    if not sell_usd or sell_usd <= 0 or wholesale_jpy <= 0 or exchange_rate <= 0:
+        return _zero()
 
-    # 国際送料（重量不明の場合は 500g と仮定）
-    weight_kg = ((product.get("weight_g") or 500)) / 1000
-    shipping_jpy = weight_kg * params["shipping_cost_per_kg_jpy"]
+    # 紹介料がKeepaから取れなかった場合は15%で概算
+    if referral_usd is None:
+        referral_usd = round(sell_usd * 0.15, 2)
+
+    purchase_usd = wholesale_jpy / exchange_rate
+    shipping_jpy = weight_g * shipping_per_g
     shipping_usd = shipping_jpy / exchange_rate
 
-    # Amazon US 紹介料（販売価格 × 紹介料率）
-    referral_fee_usd = us_sell_price_usd * (params["fba_referral_fee_percent"] / 100)
-
-    # FBA フルフィルメント手数料（重量から概算）
-    fba_fulfillment_usd = _estimate_fba_fee(weight_kg)
-
-    # 合計費用（USD）
-    total_fees_usd = shipping_usd + referral_fee_usd + fba_fulfillment_usd
-
-    # 純利益
-    profit_usd = us_sell_price_usd - purchase_usd - total_fees_usd
-    profit_jpy = profit_usd * exchange_rate
-
-    # 利益率・ROI
-    profit_margin = (profit_usd / us_sell_price_usd * 100) if us_sell_price_usd > 0 else 0
-    roi = (profit_usd / purchase_usd * 100) if purchase_usd > 0 else 0
+    purchase_plus_shipping = round(purchase_usd + shipping_usd + fba_fee, 2)
+    amazon_fees = round(referral_usd + fba_fee, 2)
+    profit_usd = round(sell_usd - purchase_plus_shipping - referral_usd, 2)
+    profit_jpy = round(profit_usd * exchange_rate)
+    margin = round(profit_usd / sell_usd, 4) if sell_usd > 0 else 0
 
     return {
-        "purchase_usd": round(purchase_usd, 2),
-        "us_sell_price_usd": round(us_sell_price_usd, 2),
-        "us_sell_price_jpy": round(us_sell_price_usd * exchange_rate),
-        "shipping_cost_jpy": round(shipping_jpy),
-        "shipping_cost_usd": round(shipping_usd, 2),
-        "referral_fee_usd": round(referral_fee_usd, 2),
-        "fba_fulfillment_usd": round(fba_fulfillment_usd, 2),
-        "total_fees_usd": round(total_fees_usd, 2),
-        "profit_usd": round(profit_usd, 2),
-        "profit_jpy": round(profit_jpy),
-        "profit_margin_percent": round(profit_margin, 1),
-        "roi_percent": round(roi, 1),
+        "purchase_plus_shipping_usd": purchase_plus_shipping,
+        "amazon_fees_usd": amazon_fees,
+        "profit_usd": profit_usd,
+        "profit_jpy": profit_jpy,
+        "profit_margin": margin,
     }
 
 
-def _estimate_fba_fee(weight_kg: float) -> float:
-    """
-    重量（kg）から FBA フルフィルメント手数料を概算する。
-    2024年 Amazon US FBA 料金表をベースにした近似値。
-    重量をポンドに変換してサイズ区分を判定する。
-    """
-    weight_lb = weight_kg * 2.20462
-
+def _estimate_fba_fee_us(weight_g: float) -> float:
+    """重量から FBA フルフィルメント手数料を概算（USD）"""
+    weight_lb = weight_g / 453.59
     if weight_lb <= 0.5:
-        return 3.22     # Small standard（小型標準）
+        return 3.22
     elif weight_lb <= 1.0:
-        return 3.86     # Standard
+        return 3.86
     elif weight_lb <= 2.0:
-        return 4.75     # Standard（重め）
+        return 4.75
     elif weight_lb <= 3.0:
-        return 5.50     # Large standard（大型標準・軽め）
+        return 5.50
     elif weight_lb <= 20.0:
-        # 大型標準：3lb 超過分は 1lb ごとに加算
         return 5.50 + (weight_lb - 3.0) * 0.16
     else:
-        # 特大・重量物
         return 9.73 + weight_lb * 0.42
 
 
-def _empty_profit() -> dict:
-    """価格が取得できない商品に対して返すゼロ値"""
+def _zero() -> dict:
     return {
-        "purchase_usd": 0,
-        "us_sell_price_usd": 0,
-        "us_sell_price_jpy": 0,
-        "shipping_cost_jpy": 0,
-        "shipping_cost_usd": 0,
-        "referral_fee_usd": 0,
-        "fba_fulfillment_usd": 0,
-        "total_fees_usd": 0,
-        "profit_usd": 0,
-        "profit_jpy": 0,
-        "profit_margin_percent": 0,
-        "roi_percent": 0,
+        "purchase_plus_shipping_usd": None,
+        "amazon_fees_usd": None,
+        "profit_usd": None,
+        "profit_jpy": None,
+        "profit_margin": None,
     }
