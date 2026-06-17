@@ -145,6 +145,23 @@ def main():
     )
 
     if start_btn:
+        # トークン残高チェック
+        from src.keepa_client import _get_api, _resolve_api_key
+        try:
+            api = _get_api(_resolve_api_key(api_key))
+            tokens = api.tokens_left
+            st.write(f"🔑 現在のトークン残高: **{tokens}**")
+            needed = estimate_tokens(process_count, use_offers)
+            if tokens < needed:
+                st.error(
+                    f"⚠️ トークン不足です。必要: {needed} / 残高: {tokens}\n\n"
+                    f"トークンが補充されるまで待つか、処理件数を減らしてください。\n\n"
+                    f"残高確認: https://keepa.com/#!api"
+                )
+                return
+        except Exception as e:
+            st.warning(f"トークン確認失敗: {e}（処理は続行します）")
+
         _run_processing(df, process_count, api_key, profit_params, wholesaler_name, use_offers)
 
     # Phase 4: 結果表示 & ダウンロード
