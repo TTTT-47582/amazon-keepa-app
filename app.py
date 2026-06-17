@@ -77,8 +77,6 @@ def main():
 
         st.divider()
 
-        wholesaler_name = st.text_input("購入先問屋名", value="多摩電子")
-
         live_rate, rate_date = _fetch_exchange_rate()
         auto_rate = st.checkbox("為替レートを自動取得", value=True)
         if auto_rate:
@@ -91,15 +89,9 @@ def main():
                 min_value=100.0, max_value=250.0, value=150.0, step=1.0,
             )
 
-        shipping_per_g = st.number_input(
-            "国際送料 (円/g)",
-            min_value=0.0, max_value=20.0, value=3.0, step=0.5,
-            help="EMS: ~4円/g、SAL便: ~2円/g、船便: ~1円/g",
-        )
-
+    wholesaler_name = ""
     profit_params = {
         "exchange_rate": exchange_rate,
-        "shipping_cost_per_g_jpy": shipping_per_g,
     }
 
     # ── メインエリア ──

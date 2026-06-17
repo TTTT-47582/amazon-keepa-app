@@ -3,8 +3,7 @@
 
 計算式:
   仕入USD         = 卸価格(JPY) ÷ 為替レート
-  国際送料USD     = 重量(g) × 送料単価(JPY/g) ÷ 為替レート
-  仕入＋送料      = 仕入USD + 国際送料USD + FBA Pick&Pack
+  仕入＋送料      = 仕入USD + FBA Pick&Pack
   Amazon手数料    = 紹介料 + FBA Pick&Pack
   損益(USD)       = 売価USD − 仕入＋送料 − 紹介料
   利益率          = 損益 ÷ 売価USD
@@ -16,11 +15,9 @@ from __future__ import annotations
 def calculate_profit_us(item: dict, params: dict) -> dict:
     """
     卸仕入れ → US FBA 販売の利益計算。
-    item: Keepa結果 + 卸データをマージした辞書
-    params: exchange_rate, shipping_cost_per_g_jpy など
+    送料・FBA手数料はKeepaデータから取得。
     """
     exchange_rate = params.get("exchange_rate", 150.0)
-    shipping_per_g = params.get("shipping_cost_per_g_jpy", 3.0)
 
     wholesale_jpy = item.get("wholesale_price") or 0
     sell_usd = item.get("buy_box_price_usd")
@@ -31,15 +28,12 @@ def calculate_profit_us(item: dict, params: dict) -> dict:
     if not sell_usd or sell_usd <= 0 or wholesale_jpy <= 0 or exchange_rate <= 0:
         return _zero()
 
-    # 紹介料がKeepaから取れなかった場合は15%で概算
     if referral_usd is None:
         referral_usd = round(sell_usd * 0.15, 2)
 
     purchase_usd = wholesale_jpy / exchange_rate
-    shipping_jpy = weight_g * shipping_per_g
-    shipping_usd = shipping_jpy / exchange_rate
 
-    purchase_plus_shipping = round(purchase_usd + shipping_usd + fba_fee, 2)
+    purchase_plus_shipping = round(purchase_usd + fba_fee, 2)
     amazon_fees = round(referral_usd + fba_fee, 2)
     profit_usd = round(sell_usd - purchase_plus_shipping - referral_usd, 2)
     profit_jpy = round(profit_usd * exchange_rate)
