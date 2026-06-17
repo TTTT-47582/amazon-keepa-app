@@ -339,15 +339,30 @@ def _show_results(results: list[dict], wholesaler_name: str, profit_params: dict
                 })
             st.dataframe(preview, use_container_width=True)
 
-    # Excel ダウンロード
+    # Excel 出力（自動で開く + 手動ダウンロードも残す）
     st.divider()
     excel_buf = write_output_excel(results, wholesaler_name)
+
+    import subprocess, platform
+    from pathlib import Path
+    output_dir = Path.home() / "Desktop"
+    output_path = output_dir / "us_research_results.xlsx"
+    try:
+        output_path.write_bytes(excel_buf.getvalue())
+        if platform.system() == "Darwin":
+            subprocess.Popen(["open", str(output_path)])
+        elif platform.system() == "Windows":
+            subprocess.Popen(["start", "", str(output_path)], shell=True)
+        st.success(f"📂 **{output_path}** に保存してExcelで開きました")
+    except Exception:
+        pass
+
+    excel_buf.seek(0)
     st.download_button(
-        "📥 結果 Excel をダウンロード",
+        "📥 結果 Excel を手動ダウンロード",
         data=excel_buf,
         file_name="us_research_results.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
         use_container_width=True,
     )
 
