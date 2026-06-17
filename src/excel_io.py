@@ -177,8 +177,8 @@ _ROW1_HEADERS = [
 
 def write_output_excel(results: list[dict], wholesaler_name: str = "") -> io.BytesIO:
     """
-    Keepa 取得結果 + 利益計算済みデータを Sheet3 形式の Excel として出力する。
-    元ファイルと同一のデザイン（配色・列幅・フォント・数値書式）を再現。
+    Keepa 取得結果を Sheet3 形式の Excel として出力する。
+    元Sheet3と同一の計算式を埋め込み、Excel上で値を変更すると自動再計算される。
     """
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -193,64 +193,86 @@ def write_output_excel(results: list[dict], wholesaler_name: str = "") -> io.Byt
         cell = ws.cell(row=1, column=col_num, value=text)
         cell.font = _NORMAL_FONT
 
-    # ── Row2: メインヘッダー（配色 + 太字） ──
+    # ── Row2: メインヘッダー（配色 + 太字） + 定数セル ──
     for col_num, text, fill, _ in _ROW2_HEADERS:
         cell = ws.cell(row=2, column=col_num, value=text)
         cell.font = _HEADER_FONT
         cell.fill = fill
         cell.alignment = Alignment(wrap_text=True)
 
-    # ── データ行（Row3〜） ──
+    # 定数（元Sheet3と同一: AH2=為替レート, AI2=送料単価/g）
+    exchange_rate = 150.0
+    if results:
+        exchange_rate = results[0].get("_exchange_rate", 150.0)
+    ws.cell(row=2, column=34, value=exchange_rate)   # AH2: 為替レート
+    ws.cell(row=2, column=35, value=3)               # AI2: 送料単価(円/g)
+    ws.cell(row=2, column=36, value="ポンド")        # AJ2
+    ws.cell(row=2, column=37, value=453.59)          # AK2
+    ws.cell(row=2, column=38, value=0.23)            # AL2
+    ws.cell(row=2, column=39, value=106.14006)       # AM2
+
+    # ── データ行（Row3〜）: 値 + Excel計算式 ──
     today = date.today().isoformat()
 
     for row_idx, r in enumerate(results, start=3):
-        exchange_rate = r.get("_exchange_rate", 150.0)
-        sell_usd = r.get("buy_box_price_usd")
-        profit_usd = r.get("profit_usd")
-        wholesale = r.get("wholesale_price") or 0
+        n = row_idx  # 行番号（数式用）
 
-        ws.cell(row=row_idx, column=1, value="")                          # A: 重複確認
-        ws.cell(row=row_idx, column=2, value=today)                       # B: 日付
-        ws.cell(row=row_idx, column=3, value=wholesaler_name)             # C: 購入先問屋
-        ws.cell(row=row_idx, column=4, value=r.get("product_name_jp", ""))# D: 商品名
-        ws.cell(row=row_idx, column=5, value=r.get("title", ""))          # E: タイトル
-        ws.cell(row=row_idx, column=6, value="")                          # F: SKU
-        ws.cell(row=row_idx, column=7, value=r.get("asin", ""))           # G: ASIN
+        ws.cell(row=n, column=1, value="")                              # A: 重複確認
+        ws.cell(row=n, column=2, value=today)                           # B: 日付
+        ws.cell(row=n, column=3, value=wholesaler_name)                 # C: 購入先問屋
+        ws.cell(row=n, column=4, value=r.get("product_name_jp", ""))    # D: 商品名
+        ws.cell(row=n, column=5, value=r.get("title", ""))              # E: タイトル
+        ws.cell(row=n, column=6, value="")                              # F: SKU
+        ws.cell(row=n, column=7, value=r.get("asin", ""))               # G: ASIN
         h_val = "" if r.get("found") else "US未出品"
-        ws.cell(row=row_idx, column=8, value=h_val)                       # H: 備考
-        ws.cell(row=row_idx, column=9, value=r.get("part_number", ""))    # I: 型番
-        ws.cell(row=row_idx, column=10, value="")                         # J: 購入在庫
-        ws.cell(row=row_idx, column=11, value="")                         # K: 売価最新更新日
-        ws.cell(row=row_idx, column=12, value="")                         # L: 売価90日変化率
-        ws.cell(row=row_idx, column=13, value=r.get("buy_box_seller", ""))# M: BBセラー
-        ws.cell(row=row_idx, column=14, value="")                         # N: 出品許可
-        ws.cell(row=row_idx, column=15, value=r.get("sales_rank_drops_30"))# O: 30キーパ
-        ws.cell(row=row_idx, column=16, value=r.get("fba_seller_count"))  # P: セラー数(FBA)
-        ws.cell(row=row_idx, column=17, value=r.get("fbm_seller_count"))  # Q: セラー数(無在庫)
-        ws.cell(row=row_idx, column=18, value="")                         # R: 販売数
-        ws.cell(row=row_idx, column=19, value="")                         # S: 初回仕入れ
-        _set_num(ws, row_idx, 20, sell_usd)                               # T: 売価USD
-        _set_num(ws, row_idx, 21, r.get("purchase_plus_shipping_usd"), "0.00")  # U: 仕入＋送料
-        _set_num(ws, row_idx, 22, r.get("amazon_fees_usd"))               # V: Amazon手数料
-        ws.cell(row=row_idx, column=23, value=wholesale)                  # W: 仕入値
-        ws.cell(row=row_idx, column=24, value=r.get("package_weight_g"))  # X: Weight
-        _set_num(ws, row_idx, 25, r.get("profit_usd"), "0.00")           # Y: 損益
-        _set_num(ws, row_idx, 26, r.get("profit_jpy"), "0.00")           # Z: 利益額
-        _set_pct(ws, row_idx, 27, r.get("profit_margin"))                # AA: 利益率
-
-        # AB-AG: 利益額2・売上・手数料・原価・原価送料・利益/円（計算列）
-        if sell_usd and profit_usd is not None:
-            sell_jpy = sell_usd * exchange_rate
-            fees_usd = r.get("amazon_fees_usd") or 0
-            pps = r.get("purchase_plus_shipping_usd") or 0
-            _set_num(ws, row_idx, 28, profit_usd * 5 if profit_usd else None, "0.00")  # 利益額2 (5個想定)
-            _set_num(ws, row_idx, 29, sell_jpy, "0.00")                    # 売上(円)
-            _set_num(ws, row_idx, 30, fees_usd * exchange_rate, "0.00")    # 手数料(円)
-            _set_num(ws, row_idx, 31, wholesale, "0.00")                   # 原価
-            shipping_jpy = ((r.get("package_weight_g") or 500) * 3.0)
-            _set_num(ws, row_idx, 32, shipping_jpy, "0.00")               # 原価送料
-            profit_jpy_val = r.get("profit_jpy")
-            _set_num(ws, row_idx, 33, profit_jpy_val, "0.00")             # 利益/円
+        ws.cell(row=n, column=8, value=h_val)                           # H: 備考
+        ws.cell(row=n, column=9, value=r.get("part_number", ""))        # I: 型番
+        ws.cell(row=n, column=10, value="")                             # J: 購入在庫
+        ws.cell(row=n, column=11, value="")                             # K: 売価最新更新日
+        ws.cell(row=n, column=12, value=1)                              # L: セット内容（デフォルト1）
+        ws.cell(row=n, column=13, value=r.get("buy_box_seller", ""))    # M: BBセラー
+        ws.cell(row=n, column=14, value=r.get("wholesale_price") or 0)  # N: 1本単価税込（卸価格）
+        ws.cell(row=n, column=15, value=r.get("sales_rank_drops_30"))   # O: 30キーパ
+        ws.cell(row=n, column=16, value=r.get("fba_seller_count"))      # P: セラー数(FBA)
+        ws.cell(row=n, column=17, value=r.get("fbm_seller_count"))      # Q: セラー数(無在庫)
+        ws.cell(row=n, column=18, value="")                             # R: 販売数
+        ws.cell(row=n, column=19, value=5)                              # S: 初回仕入れ（デフォルト5）
+        _set_num(ws, n, 20, r.get("buy_box_price_usd"))                 # T: 売価USD
+        # U: 仕入＋送料（FBA）= (仕入値 + Weight×送料単価) / 為替レート
+        ws.cell(row=n, column=21, value=f"=(W{n}+(X{n}*$AI$2))/$AH$2")
+        ws[f"U{n}"].number_format = "0.00"
+        _set_num(ws, n, 22, r.get("amazon_fees_usd"))                   # V: Amazon手数料
+        # W: 仕入値 = セット内容 × 1本単価 × 1.1（税込）
+        ws.cell(row=n, column=23, value=f"=L{n}*N{n}*1.1")
+        ws[f"W{n}"].number_format = "0"
+        ws.cell(row=n, column=24, value=r.get("package_weight_g"))      # X: Weight(FBA)
+        # Y: 損益 = 売価 - 仕入送料 - Amazon手数料
+        ws.cell(row=n, column=25, value=f"=(T{n}-U{n}-V{n})")
+        ws[f"Y{n}"].number_format = "0.00"
+        # Z: 利益額 = (30日drop / (FBAセラー+1)) × 損益
+        ws.cell(row=n, column=26, value=f"=IFERROR((O{n}/(P{n}+1))*Y{n},0)")
+        ws[f"Z{n}"].number_format = "0.00"
+        # AA: 利益率 = 損益 / 売価
+        ws.cell(row=n, column=27, value=f"=IFERROR(Y{n}/T{n},0)")
+        ws[f"AA{n}"].number_format = "0.00%"
+        # AB: 利益額2 = 損益 × 初回仕入れ
+        ws.cell(row=n, column=28, value=f"=Y{n}*S{n}")
+        ws[f"AB{n}"].number_format = "0.00"
+        # AC: 売上 = 初回仕入れ × 売価 × 送料単価
+        ws.cell(row=n, column=29, value=f"=S{n}*T{n}*$AI$2")
+        ws[f"AC{n}"].number_format = "0.00"
+        # AD: 手数料 = Amazon手数料 × 送料単価 × 初回仕入れ
+        ws.cell(row=n, column=30, value=f"=V{n}*$AI$2*S{n}")
+        ws[f"AD{n}"].number_format = "0.00"
+        # AE: 原価 = 初回仕入れ × 仕入値
+        ws.cell(row=n, column=31, value=f"=S{n}*W{n}")
+        ws[f"AE{n}"].number_format = "0.00"
+        # AF: 原価送料 = 初回仕入れ × Weight × 送料単価
+        ws.cell(row=n, column=32, value=f"=S{n}*X{n}*$AI$2")
+        ws[f"AF{n}"].number_format = "0.00"
+        # AG: 利益/円 = 利益額2 × 為替レート
+        ws.cell(row=n, column=33, value=f"=AB{n}*$AH$2")
+        ws[f"AG{n}"].number_format = "0.00"
 
     buf = io.BytesIO()
     wb.save(buf)
