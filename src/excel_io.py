@@ -44,6 +44,78 @@ def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
     return raw.reset_index(drop=True)
 
 
+def read_keepa_export_sheet(file_buffer, sheet_name: str | int = 1) -> dict[str, dict]:
+    """
+    Excel内のKeepaエクスポートシート（シート2）を読み込み、
+    EANコードをキーにした辞書を返す。APIを使わずに既存データを再利用できる。
+
+    Returns:
+        {ean_code: {title, asin, buy_box_price_usd, ...}} のマッピング
+    """
+    raw = pd.read_excel(
+        file_buffer,
+        sheet_name=sheet_name,
+        header=0,
+        dtype=str,
+        engine="openpyxl",
+    )
+
+    ean_to_product: dict[str, dict] = {}
+
+    for _, row in raw.iterrows():
+        ean = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+        if not ean or not ean.replace(" ", "").isdigit():
+            continue
+
+        ean = ean.replace(" ", "")
+
+        buy_box_raw = _safe_float(row.iloc[14])  # Col15: Buy Box 現在価格
+        fba_fee_raw = _safe_float(row.iloc[20])   # Col21: FBA Pick&Pack 料金
+        referral_raw = _safe_float(row.iloc[21])   # Col22: 紹介料
+        weight_raw = _safe_float(row.iloc[29])     # Col30: パッケージ重さ(g)
+
+        fba_count = _safe_int(row.iloc[24])  # Col25: FBA数
+        fbm_count = _safe_int(row.iloc[25])  # Col26: FBM数
+        drops_30 = _safe_int(row.iloc[5])    # Col6: 30日ランク下落
+
+        buy_box_seller = str(row.iloc[16]).strip() if pd.notna(row.iloc[16]) else ""
+
+        product = {
+            "found": buy_box_raw is not None and buy_box_raw > 0,
+            "asin": str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else "",
+            "title": str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else "",
+            "buy_box_price_usd": buy_box_raw,
+            "buy_box_seller": buy_box_seller if buy_box_seller != "-" else "",
+            "fba_seller_count": fba_count,
+            "fbm_seller_count": fbm_count,
+            "sales_rank_drops_30": drops_30,
+            "package_weight_g": int(weight_raw) if weight_raw else None,
+            "fba_pick_pack_usd": fba_fee_raw,
+            "referral_fee_usd": referral_raw,
+            "referral_fee_pct": None,
+        }
+
+        if ean not in ean_to_product:
+            ean_to_product[ean] = product
+
+    return ean_to_product
+
+
+def _safe_float(val) -> float | None:
+    try:
+        v = float(val)
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(val) -> int | None:
+    try:
+        return int(float(val))
+    except (TypeError, ValueError):
+        return None
+
+
 # ── ヘッダー配色（元Sheet3と同一） ──
 _BLUE   = PatternFill("solid", fgColor="0000FF")
 _GREEN  = PatternFill("solid", fgColor="B6D7A8")

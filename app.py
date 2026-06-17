@@ -15,7 +15,7 @@ import requests
 import streamlit as st
 from src.keepa_client import query_jan_codes_us, estimate_tokens
 from src.profit_calc import calculate_profit_us
-from src.excel_io import read_wholesaler_excel, write_output_excel
+from src.excel_io import read_wholesaler_excel, read_keepa_export_sheet, write_output_excel
 
 st.set_page_config(
     page_title="JAN → US Amazon リサーチ",
@@ -47,13 +47,33 @@ def main():
     with st.sidebar:
         st.header("⚙️ 設定")
 
-        env_key = os.getenv("KEEPA_API_KEY", "")
-        api_key = st.text_input(
-            "Keepa API キー",
-            value=env_key,
-            type="password",
-            placeholder=".env 未設定の場合はここに入力",
+        data_mode = st.radio(
+            "データ取得モード",
+            ["📄 Excel内Keepaデータを使用（API不要）", "🌐 Keepa APIで取得"],
+            index=0,
+            help="Excel内にKeepaエクスポートシートがある場合はAPI不要で処理できます",
         )
+        use_api = data_mode.startswith("🌐")
+
+        api_key = ""
+        use_offers = False
+        max_items = 5000
+        if use_api:
+            env_key = os.getenv("KEEPA_API_KEY", "")
+            api_key = st.text_input(
+                "Keepa API キー",
+                value=env_key,
+                type="password",
+                placeholder=".env 未設定の場合はここに入力",
+            )
+            use_offers = st.checkbox(
+                "セラー数を取得する", value=False,
+                help="ONでFBA/FBMセラー数取得。トークン消費が約3倍に。",
+            )
+            max_items = st.number_input(
+                "処理上限件数",
+                min_value=10, max_value=5000, value=100, step=50,
+            )
 
         st.divider()
 
@@ -77,27 +97,13 @@ def main():
             help="EMS: ~4円/g、SAL便: ~2円/g、船便: ~1円/g",
         )
 
-        st.divider()
-
-        use_offers = st.checkbox(
-            "セラー数を取得する",
-            value=True,
-            help="ONにするとFBA/FBMセラー数を取得できますがトークン消費が約3倍になります",
-        )
-
-        max_items = st.number_input(
-            "処理上限件数",
-            min_value=10, max_value=5000, value=100, step=50,
-            help="一度に処理するJANコードの上限。多いほど時間がかかります。",
-        )
-
     profit_params = {
         "exchange_rate": exchange_rate,
         "shipping_cost_per_g_jpy": shipping_per_g,
     }
 
     # ── メインエリア ──
-    if not api_key:
+    if use_api and not api_key:
         st.warning("サイドバーに Keepa API キーを入力してください。")
         return
 
@@ -130,39 +136,45 @@ def main():
 
     # 処理対象
     process_count = min(unique_jans, int(max_items))
-    tokens = estimate_tokens(process_count, use_offers)
-    st.info(
-        f"🔍 処理対象: **{process_count:,} 件**（全{unique_jans:,}件中）\n\n"
-        f"💰 推定トークン消費: **{tokens:,}** トークン　｜　"
-        f"⏱ 推定時間: **約{max(tokens // 50, 1)}分**（50トークン/分の場合）"
-    )
+
+    if use_api:
+        tokens = estimate_tokens(process_count, use_offers)
+        st.info(
+            f"🔍 処理対象: **{process_count:,} 件**（全{unique_jans:,}件中）\n\n"
+            f"💰 推定トークン消費: **{tokens:,}** トークン　｜　"
+            f"⏱ 推定時間: **約{max(tokens // 50, 1)}分**（50トークン/分の場合）"
+        )
+    else:
+        st.info(
+            f"📄 **Excel内Keepaデータ**でマッチング（API不要・トークン消費ゼロ）\n\n"
+            f"対象: **{unique_jans:,} 件**のJANコード"
+        )
 
     # Phase 3: 処理実行
-    start_btn = st.button(
-        "🚀 Keepa データ取得 開始",
-        type="primary",
-        use_container_width=True,
-    )
+    btn_label = "🚀 Keepa データ取得 開始" if use_api else "🚀 マッチング開始（API不要）"
+    start_btn = st.button(btn_label, type="primary", use_container_width=True)
 
     if start_btn:
-        # トークン残高チェック
-        from src.keepa_client import _get_api, _resolve_api_key
-        try:
-            api = _get_api(_resolve_api_key(api_key))
-            tokens = api.tokens_left
-            st.write(f"🔑 現在のトークン残高: **{tokens}**")
-            needed = estimate_tokens(process_count, use_offers)
-            if tokens < needed:
-                st.error(
-                    f"⚠️ トークン不足です。必要: {needed} / 残高: {tokens}\n\n"
-                    f"トークンが補充されるまで待つか、処理件数を減らしてください。\n\n"
-                    f"残高確認: https://keepa.com/#!api"
-                )
-                return
-        except Exception as e:
-            st.warning(f"トークン確認失敗: {e}（処理は続行します）")
-
-        _run_processing(df, process_count, api_key, profit_params, wholesaler_name, use_offers)
+        if use_api:
+            # トークン残高チェック
+            from src.keepa_client import _get_api, _resolve_api_key
+            try:
+                api = _get_api(_resolve_api_key(api_key))
+                tokens_left = api.tokens_left
+                st.write(f"🔑 現在のトークン残高: **{tokens_left}**")
+                needed = estimate_tokens(process_count, use_offers)
+                if tokens_left < needed:
+                    st.error(
+                        f"⚠️ トークン不足です。必要: {needed} / 残高: {tokens_left}\n\n"
+                        f"トークンが補充されるまで待つか、処理件数を減らしてください。\n\n"
+                        f"残高確認: https://keepa.com/#!api"
+                    )
+                    return
+            except Exception as e:
+                st.warning(f"トークン確認失敗: {e}（処理は続行します）")
+            _run_processing(df, process_count, api_key, profit_params, wholesaler_name, use_offers)
+        else:
+            _run_excel_matching(uploaded, df, profit_params, wholesaler_name)
 
     # Phase 4: 結果表示 & ダウンロード
     if st.session_state.get("results"):
@@ -218,6 +230,61 @@ def _run_processing(
             "part_number": ws.get("part_number", ""),
             "wholesale_price": ws.get("wholesale_price", 0),
             "box_qty": ws.get("box_qty", 1),
+            **kp,
+        }
+
+        profit = calculate_profit_us(merged, profit_params)
+        merged.update(profit)
+        merged["_exchange_rate"] = profit_params["exchange_rate"]
+        results.append(merged)
+
+    st.session_state["results"] = results
+
+    found_count = sum(1 for r in results if r.get("found"))
+    st.success(
+        f"🎉 完了！ **{len(results):,} 件**処理　"
+        f"（US出品あり: **{found_count:,} 件** / 未出品: {len(results) - found_count:,} 件）"
+    )
+
+
+def _run_excel_matching(uploaded_file, df, profit_params: dict, wholesaler_name: str):
+    """Excel内のKeepaエクスポートシートを使ってマッチング（API不要）"""
+
+    with st.spinner("Excel内のKeepaデータを読み込み中..."):
+        try:
+            uploaded_file.seek(0)
+            keepa_data = read_keepa_export_sheet(uploaded_file, sheet_name=1)
+        except Exception as e:
+            st.error(f"Keepaシートの読み込みエラー: {e}\n\nExcelの2番目のシートにKeepaエクスポートデータがあることを確認してください。")
+            return
+
+    st.write(f"📄 Keepaデータ: **{len(keepa_data):,} 件**のEANを読み込み")
+
+    # JANコードで卸データをマッピング
+    jan_to_wholesale = {}
+    for _, row in df.iterrows():
+        jan = row["jan_code"]
+        if jan not in jan_to_wholesale:
+            jan_to_wholesale[jan] = row.to_dict()
+
+    unique_jans = df["jan_code"].unique().tolist()
+
+    results = []
+    for jan in unique_jans:
+        ws_data = jan_to_wholesale.get(jan, {})
+        kp = keepa_data.get(jan, {"found": False, "asin": "", "title": "",
+             "buy_box_price_usd": None, "buy_box_seller": "",
+             "fba_seller_count": None, "fbm_seller_count": None,
+             "sales_rank_drops_30": None, "package_weight_g": None,
+             "fba_pick_pack_usd": None, "referral_fee_usd": None,
+             "referral_fee_pct": None})
+
+        merged = {
+            "jan_code": jan,
+            "product_name_jp": ws_data.get("product_name_jp", ""),
+            "part_number": ws_data.get("part_number", ""),
+            "wholesale_price": ws_data.get("wholesale_price", 0),
+            "box_qty": ws_data.get("box_qty", 1),
             **kp,
         }
 
