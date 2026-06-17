@@ -72,17 +72,19 @@ def read_keepa_export_sheet(file_buffer, sheet_name: str | int = 1) -> dict[str,
         buy_box_raw = _safe_float(row.iloc[14])  # Col15: Buy Box 現在価格
         weight_raw = _safe_float(row.iloc[29])     # Col30: パッケージ重さ(g)
 
-        fba_count = _safe_int(row.iloc[24])  # Col25: FBA数
-        fbm_count = _safe_int(row.iloc[25])  # Col26: FBM数
-        drops_30 = _safe_int(row.iloc[5])    # Col6: 30日ランク下落
+        fba_count = _safe_int(row.iloc[24]) or 0   # Col25: FBA数（空=0）
+        fbm_count = _safe_int(row.iloc[25]) or 0   # Col26: FBM数（空=0）
+        drops_30 = _safe_int(row.iloc[5])            # Col6: 30日ランク下落
 
         # Col43(AQ): FBA手数料 = FBA Pick&Pack + 紹介料の合算値
         total_fee = _safe_float(row.iloc[42]) if len(row) > 42 else None
-        # フォールバック: col21 + col22
         if total_fee is None:
-            fba_pp = _safe_float(row.iloc[20]) or 0   # Col21: FBA Pick&Pack
-            referral = _safe_float(row.iloc[21]) or 0  # Col22: 紹介料
+            fba_pp = _safe_float(row.iloc[20]) or 0
+            referral = _safe_float(row.iloc[21]) or 0
             total_fee = (fba_pp + referral) if (fba_pp + referral) > 0 else None
+
+        # Col39(AM): Keepaエクスポートの卸価格（元Sheet3のN列参照元）
+        keepa_wholesale = _safe_float(row.iloc[38]) if len(row) > 38 else None
 
         buy_box_seller = str(row.iloc[16]).strip() if pd.notna(row.iloc[16]) else ""
 
@@ -97,6 +99,7 @@ def read_keepa_export_sheet(file_buffer, sheet_name: str | int = 1) -> dict[str,
             "sales_rank_drops_30": drops_30,
             "package_weight_g": int(weight_raw) if weight_raw else None,
             "total_amazon_fee_usd": total_fee,
+            "keepa_wholesale": keepa_wholesale,
         }
 
         # 同じEANに複数ASINがある場合、Buy Box価格が最も高い商品を優先
@@ -242,7 +245,15 @@ def write_output_excel(results: list[dict], wholesaler_name: str = "") -> io.Byt
         ws.cell(row=n, column=11, value="")                             # K: 売価最新更新日
         ws.cell(row=n, column=12, value=1)                              # L: セット内容（デフォルト1）
         ws.cell(row=n, column=13, value=r.get("buy_box_seller", ""))    # M: BBセラー
-        ws.cell(row=n, column=14, value=r.get("wholesale_price") or 0)  # N: 1本単価税込（卸価格）
+        # N: 1本単価税込 - Keepa卸と卸データを比較し、乖離が大きければ卸データを使用
+        keepa_ws = r.get("keepa_wholesale") or 0
+        input_ws = r.get("wholesale_price") or 0
+        if keepa_ws > 0 and input_ws > 0:
+            ratio = max(keepa_ws, input_ws) / min(keepa_ws, input_ws)
+            n_val = keepa_ws if ratio < 3 else input_ws
+        else:
+            n_val = keepa_ws or input_ws
+        ws.cell(row=n, column=14, value=n_val)
         ws.cell(row=n, column=15, value=r.get("sales_rank_drops_30"))   # O: 30キーパ
         ws.cell(row=n, column=16, value=r.get("fba_seller_count"))      # P: セラー数(FBA)
         ws.cell(row=n, column=17, value=r.get("fbm_seller_count"))      # Q: セラー数(無在庫)
