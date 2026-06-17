@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 from datetime import date
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, numbers
+from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 import pandas as pd
 
