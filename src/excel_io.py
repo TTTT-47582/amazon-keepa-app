@@ -99,8 +99,15 @@ def read_keepa_export_sheet(file_buffer, sheet_name: str | int = 1) -> dict[str,
             "total_amazon_fee_usd": total_fee,
         }
 
-        if ean not in ean_to_product:
+        # 同じEANに複数ASINがある場合、Buy Box価格が最も高い商品を優先
+        existing = ean_to_product.get(ean)
+        if existing is None:
             ean_to_product[ean] = product
+        else:
+            old_price = existing.get("buy_box_price_usd") or 0
+            new_price = buy_box_raw or 0
+            if new_price > old_price:
+                ean_to_product[ean] = product
 
     return ean_to_product
 
