@@ -32,12 +32,18 @@ st.markdown("""
     header[data-testid="stHeader"] {
         background-color: #131921 !important;
     }
-    header[data-testid="stHeader"] button,
-    header[data-testid="stHeader"] a,
-    header[data-testid="stHeader"] span,
-    header[data-testid="stHeader"] svg {
+    /* 不要なヘッダーアイコン（星・ペン・GitHub）を非表示 */
+    header [data-testid="stToolbar"] {
+        display: none !important;
+    }
+    /* サイドバーの「app」→「HOME」に変更 */
+    [data-testid="stSidebarNav"] li:first-child a span {
+        font-size: 0 !important;
+    }
+    [data-testid="stSidebarNav"] li:first-child a span::after {
+        content: "HOME";
+        font-size: 14px !important;
         color: #FFFFFF !important;
-        fill: #FFFFFF !important;
     }
     /* サイドバー */
     section[data-testid="stSidebar"] {
