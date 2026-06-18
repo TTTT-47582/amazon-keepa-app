@@ -32,6 +32,13 @@ st.markdown("""
     header[data-testid="stHeader"] {
         background-color: #131921 !important;
     }
+    header[data-testid="stHeader"] button,
+    header[data-testid="stHeader"] a,
+    header[data-testid="stHeader"] span,
+    header[data-testid="stHeader"] svg {
+        color: #FFFFFF !important;
+        fill: #FFFFFF !important;
+    }
     /* サイドバー */
     section[data-testid="stSidebar"] {
         background-color: #232F3E !important;
