@@ -120,7 +120,7 @@ def _fetch_exchange_rate() -> tuple[float, str]:
 
 def main():
     st.markdown("""
-    <div style="text-align:center; padding: 10px 0 5px 0;">
+    <div style="text-align:center; padding: 10px 0 40px 0;">
         <div style="display:inline-block; position:relative;">
             <span style="font-size:48px; font-weight:bold; color:#131921; letter-spacing:-1px;
                          font-family:'Amazon Ember','Helvetica Neue',Arial,sans-serif;">
