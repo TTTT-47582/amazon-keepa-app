@@ -2,8 +2,8 @@
 JAN コード → US Amazon リサーチツール
 
 卸問屋のJANコードExcelをアップロードすると、
-Keepa APIでUS Amazonの商品データを取得し、
-利益計算済みExcelを出力する。
+Sheet2のKeepaデータとマッチングし、
+Sheet3に数式ごと自動生成する。
 
 起動コマンド: streamlit run app.py
 """
@@ -11,11 +11,13 @@ Keepa APIでUS Amazonの商品データを取得し、
 from __future__ import annotations
 
 import os
+import tempfile
+import subprocess
+import platform
+from pathlib import Path
 import requests
 import streamlit as st
-from src.keepa_client import query_jan_codes_us, estimate_tokens
-from src.profit_calc import calculate_profit_us
-from src.excel_io import read_wholesaler_excel, read_keepa_export_sheet, write_output_excel
+from src.excel_io import read_wholesaler_excel, build_ean_to_sheet2_row, generate_sheet3
 
 st.set_page_config(
     page_title="JAN → US Amazon リサーチ",
@@ -41,322 +43,145 @@ def _fetch_exchange_rate() -> tuple[float, str]:
 
 def main():
     st.title("📦 JAN → US Amazon リサーチツール")
-    st.caption("卸問屋のJANコードExcelをアップロード → Keepa で US Amazon データ取得 → 利益計算Excel出力")
+    st.caption("卸問屋のExcelをアップロード → Sheet2のKeepaデータとマッチング → Sheet3に自動生成")
 
     # ── サイドバー ──
     with st.sidebar:
         st.header("⚙️ 設定")
 
-        data_mode = st.radio(
-            "データ取得モード",
-            ["📄 Excel内Keepaデータを使用（API不要）", "🌐 Keepa APIで取得"],
-            index=0,
-            help="Excel内にKeepaエクスポートシートがある場合はAPI不要で処理できます",
-        )
-        use_api = data_mode.startswith("🌐")
-
-        api_key = ""
-        use_offers = False
-        max_items = 5000
-        if use_api:
-            env_key = os.getenv("KEEPA_API_KEY", "")
-            api_key = st.text_input(
-                "Keepa API キー",
-                value=env_key,
-                type="password",
-                placeholder=".env 未設定の場合はここに入力",
-            )
-            use_offers = st.checkbox(
-                "セラー数を取得する", value=False,
-                help="ONでFBA/FBMセラー数取得。トークン消費が約3倍に。",
-            )
-            max_items = st.number_input(
-                "処理上限件数",
-                min_value=10, max_value=5000, value=100, step=50,
-            )
-
-        st.divider()
-
         live_rate, rate_date = _fetch_exchange_rate()
-        auto_rate = st.checkbox("為替レートを自動取得", value=True)
-        if auto_rate:
-            exchange_rate = live_rate
-            if rate_date:
-                st.caption(f"💱 1 USD = ¥{live_rate:.2f}（{rate_date}）")
-        else:
-            exchange_rate = st.number_input(
-                "為替レート (1 USD = X 円)",
-                min_value=100.0, max_value=250.0, value=150.0, step=1.0,
-            )
-
-    wholesaler_name = ""
-    profit_params = {
-        "exchange_rate": exchange_rate,
-    }
+        if rate_date:
+            st.caption(f"💱 現在レート: 1 USD = ¥{live_rate:.2f}（{rate_date}）")
 
     # ── メインエリア ──
-    if use_api and not api_key:
-        st.warning("サイドバーに Keepa API キーを入力してください。")
-        return
-
-    # Phase 1: アップロード
     uploaded = st.file_uploader(
-        "卸元の Excel ファイルをアップロード（JAN コード入り）",
+        "卸元の Excel ファイルをアップロード（JAN コード + Keepa エクスポート入り）",
         type=["xlsx"],
     )
 
     if uploaded is None:
         st.info("👆 Excelファイルをドラッグ＆ドロップまたは選択してください")
+        st.markdown("""
+        **必要なシート構成：**
+        - **シート1**（商品データ）: JANコード・品名・卸価格
+        - **シート2**（Keepaエクスポート）: Keepa Webからエクスポートしたデータ
+        - **シート3**: 利益計算シート（自動で上書きされます）
+        """)
         return
 
-    # Excel 読み込み（キャッシュ）
+    # Excel読み込み
     if "uploaded_df" not in st.session_state or st.session_state.get("uploaded_name") != uploaded.name:
         with st.spinner("Excel を読み込み中..."):
             df = read_wholesaler_excel(uploaded)
+            uploaded.seek(0)
+            ean_to_row = build_ean_to_sheet2_row(uploaded)
             st.session_state["uploaded_df"] = df
+            st.session_state["ean_to_row"] = ean_to_row
             st.session_state["uploaded_name"] = uploaded.name
-            st.session_state["results"] = None
+            st.session_state["generated"] = False
 
     df = st.session_state["uploaded_df"]
+    ean_to_row = st.session_state["ean_to_row"]
 
-    # Phase 2: データ概要表示
     unique_jans = df["jan_code"].nunique()
+    matched = sum(1 for jan in df["jan_code"].unique() if jan in ean_to_row)
+
     st.success(f"✅ **{len(df):,} 行**読み込み（ユニーク JAN: **{unique_jans:,} 件**）")
+    st.info(f"🔍 Sheet2 とマッチ: **{matched:,} 件** / {unique_jans:,} 件")
 
     with st.expander("📋 データプレビュー（先頭20行）", expanded=False):
         st.dataframe(df.head(20), use_container_width=True)
 
-    # 処理対象
-    process_count = min(unique_jans, int(max_items))
-
-    if use_api:
-        tokens = estimate_tokens(process_count, use_offers)
-        st.info(
-            f"🔍 処理対象: **{process_count:,} 件**（全{unique_jans:,}件中）\n\n"
-            f"💰 推定トークン消費: **{tokens:,}** トークン　｜　"
-            f"⏱ 推定時間: **約{max(tokens // 50, 1)}分**（50トークン/分の場合）"
-        )
-    else:
-        st.info(
-            f"📄 **Excel内Keepaデータ**でマッチング（API不要・トークン消費ゼロ）\n\n"
-            f"対象: **{unique_jans:,} 件**のJANコード"
-        )
-
-    # Phase 3: 処理実行
-    btn_label = "🚀 Keepa データ取得 開始" if use_api else "🚀 マッチング開始（API不要）"
-    start_btn = st.button(btn_label, type="primary", use_container_width=True)
+    # 処理実行
+    start_btn = st.button(
+        "🚀 Sheet3 を自動生成",
+        type="primary",
+        use_container_width=True,
+    )
 
     if start_btn:
-        if use_api:
-            # トークン残高チェック
-            from src.keepa_client import _get_api, _resolve_api_key
-            try:
-                api = _get_api(_resolve_api_key(api_key))
-                tokens_left = api.tokens_left
-                st.write(f"🔑 現在のトークン残高: **{tokens_left}**")
-                needed = estimate_tokens(process_count, use_offers)
-                if tokens_left < needed:
-                    st.error(
-                        f"⚠️ トークン不足です。必要: {needed} / 残高: {tokens_left}\n\n"
-                        f"トークンが補充されるまで待つか、処理件数を減らしてください。\n\n"
-                        f"残高確認: https://keepa.com/#!api"
-                    )
-                    return
-            except Exception as e:
-                st.warning(f"トークン確認失敗: {e}（処理は続行します）")
-            _run_processing(df, process_count, api_key, profit_params, wholesaler_name, use_offers)
-        else:
-            _run_excel_matching(uploaded, df, profit_params, wholesaler_name)
+        _run_generation(uploaded)
 
-    # Phase 4: 結果表示 & ダウンロード
-    if st.session_state.get("results"):
-        _show_results(st.session_state["results"], wholesaler_name, profit_params)
+    if st.session_state.get("generated"):
+        output_path = st.session_state.get("output_path")
+        result = st.session_state.get("gen_result", {})
+        _show_result(output_path, result)
 
 
-def _run_processing(
-    df, max_count: int, api_key: str, profit_params: dict,
-    wholesaler_name: str, use_offers: bool,
-):
-    """JANコードをKeepaで一括取得し、利益計算して session_state に保存する"""
+def _run_generation(uploaded_file):
+    """元Excelをコピーし、Sheet3を自動生成する"""
+    with st.spinner("Sheet3 を生成中..."):
+        # アップロードファイルを一時保存
+        uploaded_file.seek(0)
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_in:
+            tmp_in.write(uploaded_file.read())
+            tmp_in_path = tmp_in.name
 
-    # ユニークJANコード抽出（重複排除）
-    unique_jans = df["jan_code"].unique().tolist()[:max_count]
+        # 出力先
+        output_path = Path.home() / "Desktop" / "リサーチ結果.xlsx"
 
-    # 卸データを JAN → row のマッピングに変換（先頭行を優先）
-    jan_to_wholesale = {}
-    for _, row in df.iterrows():
-        jan = row["jan_code"]
-        if jan not in jan_to_wholesale:
-            jan_to_wholesale[jan] = row.to_dict()
+        # Sheet2のシート名を取得
+        import openpyxl
+        wb_tmp = openpyxl.load_workbook(tmp_in_path, read_only=True)
+        sheet2_name = wb_tmp.sheetnames[1] if len(wb_tmp.sheetnames) > 1 else "Sheet2"
+        wb_tmp.close()
 
-    progress_bar = st.progress(0, text="Keepa API に問い合わせ中...")
-    status_text = st.empty()
-
-    def on_progress(done, total):
-        progress_bar.progress(done / total, text=f"処理中... {done:,}/{total:,} 件")
-        status_text.caption(f"完了: {done:,} / {total:,}")
-
-    try:
-        keepa_results = query_jan_codes_us(
-            unique_jans,
-            api_key=api_key,
-            batch_size=100,
-            use_offers=use_offers,
-            progress_callback=on_progress,
-        )
-    except Exception as e:
-        st.error(f"Keepa API エラー: {e}")
-        return
-
-    progress_bar.progress(1.0, text="完了！")
-
-    # Keepa結果 + 卸データをマージして利益計算
-    results = []
-    for jan in unique_jans:
-        ws = jan_to_wholesale.get(jan, {})
-        kp = keepa_results.get(jan, {})
-
-        merged = {
-            "jan_code": jan,
-            "product_name_jp": ws.get("product_name_jp", ""),
-            "part_number": ws.get("part_number", ""),
-            "wholesale_price": ws.get("wholesale_price", 0),
-            "box_qty": ws.get("box_qty", 1),
-            **kp,
-        }
-
-        profit = calculate_profit_us(merged, profit_params)
-        merged.update(profit)
-        merged["_exchange_rate"] = profit_params["exchange_rate"]
-        results.append(merged)
-
-    st.session_state["results"] = results
-
-    found_count = sum(1 for r in results if r.get("found"))
-    st.success(
-        f"🎉 完了！ **{len(results):,} 件**処理　"
-        f"（US出品あり: **{found_count:,} 件** / 未出品: {len(results) - found_count:,} 件）"
-    )
-
-
-def _run_excel_matching(uploaded_file, df, profit_params: dict, wholesaler_name: str):
-    """Excel内のKeepaエクスポートシートを使ってマッチング（API不要）"""
-
-    with st.spinner("Excel内のKeepaデータを読み込み中..."):
         try:
-            uploaded_file.seek(0)
-            keepa_data = read_keepa_export_sheet(uploaded_file, sheet_name=1)
+            result = generate_sheet3(
+                source_path=tmp_in_path,
+                output_path=output_path,
+                sheet2_name=sheet2_name,
+            )
         except Exception as e:
-            st.error(f"Keepaシートの読み込みエラー: {e}\n\nExcelの2番目のシートにKeepaエクスポートデータがあることを確認してください。")
+            st.error(f"生成エラー: {e}")
+            import traceback
+            st.code(traceback.format_exc())
             return
+        finally:
+            os.unlink(tmp_in_path)
 
-    st.write(f"📄 Keepaデータ: **{len(keepa_data):,} 件**のEANを読み込み")
+    st.session_state["generated"] = True
+    st.session_state["output_path"] = str(output_path)
+    st.session_state["gen_result"] = result
 
-    # JANコードで卸データをマッピング
-    jan_to_wholesale = {}
-    for _, row in df.iterrows():
-        jan = row["jan_code"]
-        if jan not in jan_to_wholesale:
-            jan_to_wholesale[jan] = row.to_dict()
-
-    unique_jans = df["jan_code"].unique().tolist()
-
-    results = []
-    for jan in unique_jans:
-        ws_data = jan_to_wholesale.get(jan, {})
-        kp = keepa_data.get(jan, {"found": False, "asin": "", "title": "",
-             "buy_box_price_usd": None, "buy_box_seller": "",
-             "fba_seller_count": None, "fbm_seller_count": None,
-             "sales_rank_drops_30": None, "package_weight_g": None,
-             "fba_pick_pack_usd": None, "referral_fee_usd": None,
-             "referral_fee_pct": None})
-
-        merged = {
-            "jan_code": jan,
-            "product_name_jp": ws_data.get("product_name_jp", ""),
-            "part_number": ws_data.get("part_number", ""),
-            "wholesale_price": ws_data.get("wholesale_price", 0),
-            "box_qty": ws_data.get("box_qty", 1),
-            **kp,
-        }
-
-        profit = calculate_profit_us(merged, profit_params)
-        merged.update(profit)
-        merged["_exchange_rate"] = profit_params["exchange_rate"]
-        results.append(merged)
-
-    st.session_state["results"] = results
-
-    found_count = sum(1 for r in results if r.get("found"))
     st.success(
-        f"🎉 完了！ **{len(results):,} 件**処理　"
-        f"（US出品あり: **{found_count:,} 件** / 未出品: {len(results) - found_count:,} 件）"
+        f"🎉 完了！ **{result['matched']:,} 件**をSheet3に生成 "
+        f"（全{result['total_jans']:,} JAN中）"
     )
 
 
-def _show_results(results: list[dict], wholesaler_name: str, profit_params: dict):
-    """結果サマリーとダウンロードボタンを表示する"""
-
+def _show_result(output_path: str, result: dict):
+    """結果表示とファイルオープン"""
     st.divider()
-    st.subheader("📊 結果サマリー")
 
-    found = [r for r in results if r.get("found")]
-    profitable = [r for r in found if (r.get("profit_usd") or 0) > 0]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("全JANコード", f"{result.get('total_jans', 0):,}")
+    c2.metric("Sheet2マッチ", f"{result.get('matched', 0):,}")
+    c3.metric("未マッチ", f"{result.get('total_jans', 0) - result.get('matched', 0):,}")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("処理件数", f"{len(results):,}")
-    c2.metric("US出品あり", f"{len(found):,}")
-    c3.metric("利益あり", f"{len(profitable):,}")
-    if profitable:
-        avg_margin = sum(r.get("profit_margin", 0) for r in profitable) / len(profitable)
-        c4.metric("平均利益率", f"{avg_margin:.1%}")
-    else:
-        c4.metric("平均利益率", "-")
+    st.success(f"📂 保存先: **{output_path}**")
 
-    # プレビューテーブル（US出品ありのみ、利益率順）
-    if found:
-        with st.expander(f"📋 US出品あり商品一覧（{len(found)}件）", expanded=True):
-            preview = []
-            for r in sorted(found, key=lambda x: x.get("profit_usd") or -9999, reverse=True):
-                preview.append({
-                    "ASIN": r.get("asin", ""),
-                    "タイトル": (r.get("title") or "")[:50],
-                    "商品名(JP)": (r.get("product_name_jp") or "")[:20],
-                    "売価USD": r.get("buy_box_price_usd"),
-                    "仕入値(円)": r.get("wholesale_price"),
-                    "損益USD": r.get("profit_usd"),
-                    "利益率": f"{r.get('profit_margin', 0):.1%}" if r.get("profit_margin") else "",
-                    "FBAセラー": r.get("fba_seller_count"),
-                    "30日drop": r.get("sales_rank_drops_30"),
-                })
-            st.dataframe(preview, use_container_width=True)
-
-    # Excel 出力（自動で開く + 手動ダウンロードも残す）
-    st.divider()
-    excel_buf = write_output_excel(results, wholesaler_name)
-
-    import subprocess, platform
-    from pathlib import Path
-    output_dir = Path.home() / "Desktop"
-    output_path = output_dir / "us_research_results.xlsx"
+    # 自動でExcelを開く
     try:
-        output_path.write_bytes(excel_buf.getvalue())
         if platform.system() == "Darwin":
-            subprocess.Popen(["open", str(output_path)])
+            subprocess.Popen(["open", output_path])
         elif platform.system() == "Windows":
-            subprocess.Popen(["start", "", str(output_path)], shell=True)
-        st.success(f"📂 **{output_path}** に保存してExcelで開きました")
+            subprocess.Popen(["start", "", output_path], shell=True)
     except Exception:
         pass
 
-    excel_buf.seek(0)
-    st.download_button(
-        "📥 結果 Excel を手動ダウンロード",
-        data=excel_buf,
-        file_name="us_research_results.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+    # ダウンロードボタンも用意
+    try:
+        with open(output_path, "rb") as f:
+            st.download_button(
+                "📥 結果 Excel を手動ダウンロード",
+                data=f.read(),
+                file_name="リサーチ結果.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

@@ -1,29 +1,25 @@
 """
 Excel 読み書きモジュール
 
-卸問屋のJANコードExcelを読み込み、
-Keepa結果をSheet3形式で出力する。
+元Excelをコピーし、Sheet1のJANコードとSheet2のKeepaデータを
+マッチングしてSheet3に数式ごと自動生成する。
 """
 
 from __future__ import annotations
 
 import io
-from datetime import date
+import shutil
+from pathlib import Path
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
 import pandas as pd
 
 
 def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
-    """
-    卸問屋Excelから JAN コード・品名・卸価格などを読み取る。
-    必要列のみ読み込むことで大容量ファイルでも高速。
-    """
+    """卸問屋Excelから JAN コード・品名・卸価格などを読み取る。"""
     raw = pd.read_excel(
         file_buffer,
         sheet_name=0,
-        usecols=[3, 4, 5, 7, 8, 9],  # D, E, F, H, I, J 列のみ
+        usecols=[3, 4, 5, 7, 8, 9],
         header=0,
         dtype=str,
         engine="openpyxl",
@@ -32,7 +28,6 @@ def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
         "jan_code", "product_name_jp", "part_number",
         "retail_price", "wholesale_price", "box_qty",
     ]
-
     raw["jan_code"] = raw["jan_code"].fillna("").str.strip()
     raw = raw[raw["jan_code"].str.match(r"^\d{8,}$", na=False)].copy()
     raw["retail_price"] = pd.to_numeric(raw["retail_price"], errors="coerce").fillna(0)
@@ -40,79 +35,141 @@ def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
     raw["box_qty"] = pd.to_numeric(raw["box_qty"], errors="coerce").fillna(1).astype(int)
     raw["product_name_jp"] = raw["product_name_jp"].fillna("")
     raw["part_number"] = raw["part_number"].fillna("")
-
     return raw.reset_index(drop=True)
 
 
-def read_keepa_export_sheet(file_buffer, sheet_name: str | int = 1) -> dict[str, dict]:
+def build_ean_to_sheet2_row(file_buffer, sheet_name: str | int = 1) -> dict[str, int]:
     """
-    Excel内のKeepaエクスポートシート（シート2）を読み込み、
-    EANコードをキーにした辞書を返す。APIを使わずに既存データを再利用できる。
-
-    Returns:
-        {ean_code: {title, asin, buy_box_price_usd, ...}} のマッピング
+    Sheet2（Keepaエクスポート）を読み、EAN → Sheet2の行番号（1-indexed）のマッピングを作る。
+    同じEANに複数行がある場合、Buy Box価格が最も高い行を優先。
     """
     raw = pd.read_excel(
-        file_buffer,
-        sheet_name=sheet_name,
-        header=0,
-        dtype=str,
-        engine="openpyxl",
+        file_buffer, sheet_name=sheet_name,
+        header=0, dtype=str, engine="openpyxl",
     )
 
-    ean_to_product: dict[str, dict] = {}
+    ean_to_row: dict[str, int] = {}
+    ean_to_price: dict[str, float] = {}
 
-    for _, row in raw.iterrows():
+    for idx, row in raw.iterrows():
         ean = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
         if not ean or not ean.replace(" ", "").isdigit():
             continue
-
         ean = ean.replace(" ", "")
+        excel_row = idx + 2  # pandas 0-indexed → Excel 1-indexed + header
 
-        buy_box_raw = _safe_float(row.iloc[14])  # Col15: Buy Box 現在価格
-        weight_raw = _safe_float(row.iloc[29])     # Col30: パッケージ重さ(g)
+        buy_box = _safe_float(row.iloc[14]) or 0
 
-        fba_count = _safe_int(row.iloc[24]) or 0   # Col25: FBA数（空=0）
-        fbm_count = _safe_int(row.iloc[25]) or 0   # Col26: FBM数（空=0）
-        drops_30 = _safe_int(row.iloc[5])            # Col6: 30日ランク下落
+        old_price = ean_to_price.get(ean, -1)
+        if buy_box > old_price:
+            ean_to_row[ean] = excel_row
+            ean_to_price[ean] = buy_box
 
-        # Col43(AQ): FBA手数料 = FBA Pick&Pack + 紹介料の合算値
-        total_fee = _safe_float(row.iloc[42]) if len(row) > 42 else None
-        if total_fee is None:
-            fba_pp = _safe_float(row.iloc[20]) or 0
-            referral = _safe_float(row.iloc[21]) or 0
-            total_fee = (fba_pp + referral) if (fba_pp + referral) > 0 else None
+    return ean_to_row
 
-        # Col39(AM): Keepaエクスポートの卸価格（元Sheet3のN列参照元）
-        keepa_wholesale = _safe_float(row.iloc[38]) if len(row) > 38 else None
 
-        buy_box_seller = str(row.iloc[16]).strip() if pd.notna(row.iloc[16]) else ""
+def generate_sheet3(
+    source_path: str | Path,
+    output_path: str | Path,
+    sheet2_name: str = "2026-01-13",
+):
+    """
+    元Excelをコピーし、Sheet1のJANコードをSheet2とマッチングして
+    Sheet3にSheet2への参照数式を自動生成する。
 
-        product = {
-            "found": buy_box_raw is not None and buy_box_raw > 0,
-            "asin": str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else "",
-            "title": str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else "",
-            "buy_box_price_usd": buy_box_raw,
-            "buy_box_seller": buy_box_seller if buy_box_seller != "-" else "",
-            "fba_seller_count": fba_count,
-            "fbm_seller_count": fbm_count,
-            "sales_rank_drops_30": drops_30,
-            "package_weight_g": int(weight_raw) if weight_raw else None,
-            "total_amazon_fee_usd": total_fee,
-            "keepa_wholesale": keepa_wholesale,
-        }
+    Args:
+        source_path: 元Excelファイルのパス
+        output_path: 出力先パス（コピー）
+        sheet2_name: Keepaエクスポートのシート名
+    """
+    source_path = Path(source_path)
+    output_path = Path(output_path)
 
-        # 同じEANに複数ASINがある場合、Buy Box価格が最も高い商品を優先
-        existing = ean_to_product.get(ean)
-        if existing is None:
-            ean_to_product[ean] = product
-        else:
-            old_price = existing.get("buy_box_price_usd") or 0
-            new_price = buy_box_raw or 0
-            if new_price > old_price:
-                ean_to_product[ean] = product
+    # ① 元Excelをコピー
+    shutil.copy2(source_path, output_path)
 
-    return ean_to_product
+    # ② Sheet1からJANコード読み取り
+    with open(source_path, "rb") as f:
+        df = read_wholesaler_excel(f)
+
+    # ③ EAN → Sheet2行番号のマッピング
+    with open(source_path, "rb") as f:
+        ean_to_row = build_ean_to_sheet2_row(f, sheet_name=1)
+
+    # ④ Sheet2からタイトル（col1）を取得（数式参照できない固定値用）
+    with open(source_path, "rb") as f:
+        sheet2_raw = pd.read_excel(
+            f, sheet_name=1, header=0, dtype=str, engine="openpyxl",
+            usecols=[0, 1, 2],
+        )
+
+    row_to_title: dict[int, str] = {}
+    for idx, row in sheet2_raw.iterrows():
+        excel_row = idx + 2
+        title = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
+        row_to_title[excel_row] = title
+
+    # ⑤ コピーしたExcelのSheet3を書き換え
+    wb = openpyxl.load_workbook(output_path)
+
+    if "Sheet3" in wb.sheetnames:
+        ws = wb["Sheet3"]
+    else:
+        ws = wb.create_sheet("Sheet3")
+
+    # Row3以降のデータをクリア（Row1-2のヘッダーは残す）
+    for row in ws.iter_rows(min_row=3, max_row=ws.max_row):
+        for cell in row:
+            cell.value = None
+
+    # ⑥ JANコードごとにSheet3の行を生成
+    sq = f"'{sheet2_name}'"  # シート名参照用（数式内）
+    out_row = 3
+    unique_jans = df["jan_code"].unique()
+
+    matched = 0
+    for jan in unique_jans:
+        if jan not in ean_to_row:
+            continue
+
+        s2r = ean_to_row[jan]  # Sheet2の行番号
+        n = out_row
+        matched += 1
+
+        # Sheet2への参照（元Sheet3と同一パターン）
+        ws.cell(row=n, column=4, value=f"={sq}!AR{s2r}")     # D: 商品名日本語
+        title = row_to_title.get(s2r, "")
+        ws.cell(row=n, column=5, value=title)                  # E: タイトル（固定値）
+        ws.cell(row=n, column=7, value=f"={sq}!B{s2r}")       # G: ASIN
+        ws.cell(row=n, column=9, value=f"={sq}!E{s2r}")       # I: 型番/PartNumber
+        ws.cell(row=n, column=11, value=1)                     # K: セット内容
+        ws.cell(row=n, column=14, value=f"={sq}!AM{s2r}")     # N: 卸（Keepaエクスポート）
+        ws.cell(row=n, column=15, value=f"={sq}!F{s2r}")      # O: 30日ランク下落
+        ws.cell(row=n, column=16, value=f"={sq}!Y{s2r}")      # P: FBAセラー数
+        ws.cell(row=n, column=19, value=5)                     # S: 初回仕入れ
+        ws.cell(row=n, column=20, value=f"={sq}!O{s2r}")      # T: Buy Box価格
+        ws.cell(row=n, column=22, value=f"={sq}!AQ{s2r}")     # V: FBA手数料
+        ws.cell(row=n, column=24, value=f"={sq}!AD{s2r}")     # X: Weight
+
+        # 計算式（元Sheet3と完全に同一）
+        ws.cell(row=n, column=23, value=f"=K{n}*N{n}*1.1")                # W: 仕入値
+        ws.cell(row=n, column=21, value=f"=(W{n}+(X{n}*$AI$2))/$AH$2")    # U: 仕入＋送料
+        ws.cell(row=n, column=25, value=f"=(T{n}-U{n}-V{n})")             # Y: 損益
+        ws.cell(row=n, column=26, value=f"=(O{n}/(P{n}+1))*Y{n}")         # Z: 利益額
+        ws.cell(row=n, column=27, value=f"=Y{n}/T{n}")                    # AA: 利益率
+        ws.cell(row=n, column=28, value=f"=Y{n}*S{n}")                    # AB: 利益額2
+        ws.cell(row=n, column=29, value=f"=S{n}*T{n}*$AI$2")             # AC: 売上
+        ws.cell(row=n, column=30, value=f"=V{n}*$AI$2*S{n}")             # AD: 手数料
+        ws.cell(row=n, column=31, value=f"=S{n}*W{n}")                    # AE: 原価
+        ws.cell(row=n, column=32, value=f"=S{n}*X{n}*$AI$2")             # AF: 原価送料
+        ws.cell(row=n, column=33, value=f"=AB{n}*$AH$2")                  # AG: 利益/円
+
+        out_row += 1
+
+    wb.save(output_path)
+    wb.close()
+
+    return {"total_jans": len(unique_jans), "matched": matched, "output_path": str(output_path)}
 
 
 def _safe_float(val) -> float | None:
@@ -121,219 +178,3 @@ def _safe_float(val) -> float | None:
         return v if v > 0 else None
     except (TypeError, ValueError):
         return None
-
-
-def _safe_int(val) -> int | None:
-    try:
-        return int(float(val))
-    except (TypeError, ValueError):
-        return None
-
-
-# ── ヘッダー配色（元Sheet3と同一） ──
-_BLUE   = PatternFill("solid", fgColor="0000FF")
-_GREEN  = PatternFill("solid", fgColor="B6D7A8")
-_YELLOW = PatternFill("solid", fgColor="FFF2CC")
-_RED    = PatternFill("solid", fgColor="FF0000")
-_LIME   = PatternFill("solid", fgColor="00FF00")
-_NONE   = PatternFill(fill_type=None)
-
-_HEADER_FONT = Font(bold=True, size=10)
-_NORMAL_FONT = Font(size=11)
-
-# Row2 ヘッダー定義: (列番号, ヘッダー名, 背景色, 列幅)
-_ROW2_HEADERS = [
-    (1,  "重複確認",         _BLUE,   13.0),
-    (2,  "日付",             _BLUE,   13.0),
-    (3,  "購入先問屋",       _BLUE,   13.0),
-    (4,  "商品名",           _GREEN,  13.0),
-    (5,  "タイトル",         _GREEN,  13.0),
-    (6,  "SKU",              _GREEN,  13.0),
-    (7,  "ASIN",             _GREEN,  15.1),
-    (8,  "備考",             _GREEN,  13.0),
-    (9,  "販売可能品",       _GREEN,  11.6),
-    (10, "購入在庫",         _GREEN,  15.4),
-    (11, "売価最新更新日",   _GREEN,  13.0),
-    (12, "売価90日変化率",   _GREEN,  13.0),
-    (13, "BBセラー",         _GREEN,  13.0),
-    (14, "出品許可",         _GREEN,   9.0),
-    (15, "30キーパ",         _GREEN,  13.0),
-    (16, "セラー数（FBA）",  _GREEN,  13.0),
-    (17, "セラー数（無在庫）", _GREEN, 13.0),
-    (18, "販売数（自社1M）", _YELLOW, 13.0),
-    (19, "初回仕入れ",       _BLUE,   13.0),
-    (20, "売価USD",          _GREEN,  13.0),
-    (21, "仕入＋送料（FBA）", PatternFill("solid", fgColor="F9CB9C"), 13.0),
-    (22, "Amazon手数料",     _GREEN,  13.0),
-    (23, "仕入値",           _GREEN,   9.5),
-    (24, "Weight（FBA）",    _GREEN,  13.0),
-    (25, "損益",             _RED,    13.0),
-    (26, "利益額",           _RED,    13.0),
-    (27, "利益率",           _RED,    13.0),
-    (28, "利益額2",          _LIME,   13.0),
-    (29, "売上",             _LIME,   13.0),
-    (30, "手数料",           _LIME,   13.0),
-    (31, "原価",             _LIME,   10.2),
-    (32, "原価送料",         _LIME,   11.2),
-    (33, "利益/円",          _LIME,   11.0),
-]
-
-# Row1 サブヘッダー: (列番号, テキスト)
-_ROW1_HEADERS = [
-    (9,  "型番"),
-    (11, "出荷元販売単位"),
-    (12, "セット内容"),
-    (13, "単位"),
-    (14, "1本単価税込"),
-    (15, "1セット料金"),
-]
-
-
-def write_output_excel(results: list[dict], wholesaler_name: str = "") -> io.BytesIO:
-    """
-    Keepa 取得結果を Sheet3 形式の Excel として出力する。
-    元Sheet3と同一の計算式を埋め込み、Excel上で値を変更すると自動再計算される。
-    """
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "リサーチ結果"
-
-    # ── 列幅設定 ──
-    for col_num, _, _, width in _ROW2_HEADERS:
-        ws.column_dimensions[get_column_letter(col_num)].width = width
-
-    # ── Row1: サブヘッダー ──
-    for col_num, text in _ROW1_HEADERS:
-        cell = ws.cell(row=1, column=col_num, value=text)
-        cell.font = _NORMAL_FONT
-
-    # ── Row2: メインヘッダー（配色 + 太字） + 定数セル ──
-    for col_num, text, fill, _ in _ROW2_HEADERS:
-        cell = ws.cell(row=2, column=col_num, value=text)
-        cell.font = _HEADER_FONT
-        cell.fill = fill
-        cell.alignment = Alignment(wrap_text=True)
-
-    # 定数（元Sheet3と同一: AH2=為替レート, AI2=送料単価/g）
-    exchange_rate = 150.0
-    if results:
-        exchange_rate = results[0].get("_exchange_rate", 150.0)
-    ws.cell(row=2, column=34, value=exchange_rate)   # AH2: 為替レート
-    ws.cell(row=2, column=35, value=3)               # AI2: 送料単価(円/g)
-    ws.cell(row=2, column=36, value="ポンド")        # AJ2
-    ws.cell(row=2, column=37, value=453.59)          # AK2
-    ws.cell(row=2, column=38, value=0.23)            # AL2
-    ws.cell(row=2, column=39, value=106.14006)       # AM2
-
-    # ── データ行（Row3〜）: Python計算値を直接書き込み ──
-    today = date.today().isoformat()
-    AH = exchange_rate
-    AI = 3  # 送料単価(円/g)
-
-    for row_idx, r in enumerate(results, start=3):
-        n = row_idx
-
-        ws.cell(row=n, column=1, value="")                              # A: 重複確認
-        ws.cell(row=n, column=2, value=today)                           # B: 日付
-        ws.cell(row=n, column=3, value=wholesaler_name)                 # C: 購入先問屋
-        ws.cell(row=n, column=4, value=r.get("product_name_jp", ""))    # D: 商品名
-        ws.cell(row=n, column=5, value=r.get("title", ""))              # E: タイトル
-        ws.cell(row=n, column=6, value="")                              # F: SKU
-        ws.cell(row=n, column=7, value=r.get("asin", ""))               # G: ASIN
-        h_val = "" if r.get("found") else "US未出品"
-        ws.cell(row=n, column=8, value=h_val)                           # H: 備考
-        ws.cell(row=n, column=9, value=r.get("part_number", ""))        # I: 型番
-        ws.cell(row=n, column=10, value="")                             # J: 購入在庫
-        ws.cell(row=n, column=11, value="")                             # K: 売価最新更新日
-
-        # ── 入力値 ──
-        L = 1                                                           # L(12): セット内容
-        ws.cell(row=n, column=12, value=L)
-        ws.cell(row=n, column=13, value=r.get("buy_box_seller", ""))    # M: BBセラー
-
-        # N(14): 1本単価税込 - Keepa卸と卸データを比較
-        keepa_ws = r.get("keepa_wholesale") or 0
-        input_ws = r.get("wholesale_price") or 0
-        if keepa_ws > 0 and input_ws > 0:
-            ratio = max(keepa_ws, input_ws) / min(keepa_ws, input_ws)
-            N = keepa_ws if ratio < 3 else input_ws
-        else:
-            N = keepa_ws or input_ws
-        ws.cell(row=n, column=14, value=N)
-
-        O = r.get("sales_rank_drops_30")                                # O(15): 30キーパ
-        ws.cell(row=n, column=15, value=O)
-        P = r.get("fba_seller_count") or 0                              # P(16): セラー数(FBA)
-        ws.cell(row=n, column=16, value=P)
-        ws.cell(row=n, column=17, value=r.get("fbm_seller_count"))      # Q: セラー数(無在庫)
-        ws.cell(row=n, column=18, value="")                             # R: 販売数
-        S = 5                                                           # S(19): 初回仕入れ
-        ws.cell(row=n, column=19, value=S)
-        T = r.get("buy_box_price_usd")                                  # T(20): 売価USD
-        _set_num(ws, n, 20, T)
-        V = r.get("total_amazon_fee_usd") or r.get("amazon_fees_usd")   # V(22): Amazon手数料
-        X = r.get("package_weight_g") or 0                              # X(24): Weight(FBA)
-
-        # ── 元Sheet3と同一の計算（Pythonで実行して値を書き込む） ──
-        W = L * N * 1.1                                                 # W(23): 仕入値
-        U = (W + (X * AI)) / AH if AH > 0 else 0                       # U(21): 仕入＋送料(FBA)
-
-        _set_num(ws, n, 21, U, "0.00")
-        _set_num(ws, n, 22, V)
-        _set_num(ws, n, 23, W, "0")
-        ws.cell(row=n, column=24, value=X if X > 0 else None)
-
-        if T and T > 0 and V is not None:
-            Y = T - U - V                                               # Y(25): 損益
-            Z = (O / (P + 1)) * Y if O else 0                          # Z(26): 利益額
-            AA = Y / T                                                  # AA(27): 利益率
-            AB = Y * S                                                  # AB(28): 利益額2
-            AC = S * T * AI                                             # AC(29): 売上
-            AD = V * AI * S                                             # AD(30): 手数料
-            AE = S * W                                                  # AE(31): 原価
-            AF = S * X * AI                                             # AF(32): 原価送料
-            AG = AB * AH                                                # AG(33): 利益/円
-        else:
-            Y = Z = AA = AB = AC = AD = AE = AF = AG = 0
-
-        _set_num(ws, n, 25, Y, "0.00")
-        _set_num(ws, n, 26, Z, "0.00")
-        _set_pct(ws, n, 27, AA)
-        _set_num(ws, n, 28, AB, "0.00")
-        _set_num(ws, n, 29, AC, "0.00")
-        _set_num(ws, n, 30, AD, "0.00")
-        _set_num(ws, n, 31, AE, "0.00")
-        _set_num(ws, n, 32, AF, "0.00")
-        _set_num(ws, n, 33, AG, "0.00")
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
-
-
-def _set_num(ws, row: int, col: int, val, fmt: str = "General"):
-    """数値セルを書式付きで設定"""
-    cell = ws.cell(row=row, column=col, value=val)
-    if fmt != "General":
-        cell.number_format = fmt
-
-
-def _set_pct(ws, row: int, col: int, val):
-    """パーセント値セルを設定 (0.15 → 15.0% 表示)"""
-    cell = ws.cell(row=row, column=col, value=val)
-    cell.number_format = "0.00%"
-
-
-def _to_float(val) -> float:
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _to_int(val) -> int:
-    try:
-        return int(float(val))
-    except (TypeError, ValueError):
-        return 1
