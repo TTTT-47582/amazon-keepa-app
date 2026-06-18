@@ -36,15 +36,6 @@ st.markdown("""
     header [data-testid="stToolbar"] {
         display: none !important;
     }
-    /* サイドバーの「app」→「HOME」に変更 */
-    [data-testid="stSidebarNav"] li:first-child a span {
-        font-size: 0 !important;
-    }
-    [data-testid="stSidebarNav"] li:first-child a span::after {
-        content: "HOME";
-        font-size: 14px !important;
-        color: #FFFFFF !important;
-    }
     /* サイドバー */
     section[data-testid="stSidebar"] {
         background-color: #232F3E !important;
@@ -59,6 +50,10 @@ st.markdown("""
     }
     section[data-testid="stSidebar"] hr {
         border-color: #3B4859 !important;
+    }
+    /* デフォルトのページナビを非表示（カスタムナビに置き換え） */
+    [data-testid="stSidebarNav"] {
+        display: none !important;
     }
     /* メインエリア */
     .main .block-container {
@@ -151,6 +146,21 @@ def main():
 
     # ── サイドバー ──
     with st.sidebar:
+        # Amazon風ナビバー
+        st.markdown("""
+        <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:12px 16px;">
+            <a href="/" target="_self"
+               style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:15px;
+                      display:block; padding:6px 0; border-left:3px solid #FF9900; padding-left:12px;">
+                🏠 HOME
+            </a>
+            <a href="/使い方" target="_self"
+               style="color:#DDDDDD; text-decoration:none; font-size:14px;
+                      display:block; padding:6px 0 6px 15px;">
+                📖 使い方ガイド
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
         st.markdown("<h3 style='color:#FF9900;'>⚙️ 設定</h3>", unsafe_allow_html=True)
 
         live_rate, rate_date = _fetch_exchange_rate()
