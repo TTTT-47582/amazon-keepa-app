@@ -133,9 +133,6 @@ def main():
                 <polygon points="107,3 115,7 107,11" fill="#FF9900"/>
             </svg>
         </div>
-        <p style="color:#565959; font-size:14px; margin-top:2px;">
-            卸 Excel アップロード → Keepa マッチング → Sheet3 自動生成
-        </p>
     </div>
     """, unsafe_allow_html=True)
 
