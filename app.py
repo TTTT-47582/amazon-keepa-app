@@ -25,6 +25,83 @@ st.set_page_config(
     layout="wide",
 )
 
+# Amazon風カラーテーマ
+st.markdown("""
+<style>
+    /* ヘッダーバー */
+    header[data-testid="stHeader"] {
+        background-color: #131921 !important;
+    }
+    /* サイドバー */
+    section[data-testid="stSidebar"] {
+        background-color: #232F3E !important;
+    }
+    section[data-testid="stSidebar"] * {
+        color: #FFFFFF !important;
+    }
+    section[data-testid="stSidebar"] .stSelectbox label,
+    section[data-testid="stSidebar"] .stNumberInput label,
+    section[data-testid="stSidebar"] .stTextInput label {
+        color: #FF9900 !important;
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: #3B4859 !important;
+    }
+    /* メインエリア */
+    .main .block-container {
+        background-color: #FFFFFF;
+    }
+    /* タイトル */
+    h1 {
+        color: #131921 !important;
+    }
+    /* プライマリボタン → Amazon オレンジ */
+    button[kind="primary"], .stButton > button[kind="primary"] {
+        background-color: #FF9900 !important;
+        border-color: #E88B00 !important;
+        color: #131921 !important;
+        font-weight: bold !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #E88B00 !important;
+    }
+    /* ダウンロードボタン */
+    .stDownloadButton > button {
+        background-color: #FFD814 !important;
+        border-color: #FCD200 !important;
+        color: #0F1111 !important;
+        font-weight: bold !important;
+    }
+    .stDownloadButton > button:hover {
+        background-color: #F7CA00 !important;
+    }
+    /* 成功メッセージ */
+    .stSuccess {
+        background-color: #F0FFF0 !important;
+        border-left-color: #FF9900 !important;
+    }
+    /* メトリクス */
+    [data-testid="stMetricValue"] {
+        color: #131921 !important;
+        font-weight: bold !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #565959 !important;
+    }
+    /* ファイルアップローダー */
+    [data-testid="stFileUploader"] {
+        border-color: #FF9900 !important;
+    }
+    /* リンク色 */
+    a {
+        color: #007185 !important;
+    }
+    a:hover {
+        color: #C7511F !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 @st.cache_data(ttl=3600)
 def _fetch_exchange_rate() -> tuple[float, str]:
