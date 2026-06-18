@@ -119,8 +119,12 @@ def _run_generation(uploaded_file):
             tmp_in.write(uploaded_file.read())
             tmp_in_path = tmp_in.name
 
-        # 出力先
-        output_path = Path.home() / "Desktop" / "リサーチ結果.xlsx"
+        # 出力先（ローカルはDesktop、Cloudは一時ディレクトリ）
+        desktop = Path.home() / "Desktop"
+        if desktop.exists():
+            output_path = desktop / "リサーチ結果.xlsx"
+        else:
+            output_path = Path(tempfile.gettempdir()) / "リサーチ結果.xlsx"
 
         # Sheet2のシート名を取得
         import openpyxl
