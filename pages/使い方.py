@@ -2,9 +2,60 @@
 
 import streamlit as st
 
-st.set_page_config(page_title="使い方", page_icon="📖", layout="wide")
+st.set_page_config(page_title="Amapro - 使い方", page_icon="🔶", layout="wide")
 
-st.title("📖 使い方ガイド")
+# Amazon風テーマ（app.pyと共通）
+st.markdown("""
+<style>
+    header[data-testid="stHeader"] {
+        background-color: #131921 !important;
+    }
+    header [data-testid="stToolbar"] {
+        display: none !important;
+    }
+    section[data-testid="stSidebar"] {
+        background-color: #232F3E !important;
+    }
+    section[data-testid="stSidebar"] * {
+        color: #FFFFFF !important;
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: #3B4859 !important;
+    }
+    [data-testid="stSidebarNav"] {
+        display: none !important;
+    }
+    h1, h2, h3 { color: #131921 !important; }
+    a { color: #007185 !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# サイドバーにナビ
+with st.sidebar:
+    st.markdown("""
+    <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:12px 16px;">
+        <a href="/" target="_self"
+           style="color:#DDDDDD; text-decoration:none; font-size:14px;
+                  display:block; padding:6px 0 6px 15px;">
+            🏠 HOME
+        </a>
+        <a href="/使い方" target="_self"
+           style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:15px;
+                  display:block; padding:6px 0; border-left:3px solid #FF9900; padding-left:12px;">
+            📖 使い方ガイド
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("""
+<div style="text-align:center; padding: 10px 0 20px 0;">
+    <span style="font-size:32px; font-weight:bold; color:#131921; letter-spacing:-1px;
+                 font-family:'Amazon Ember','Helvetica Neue',Arial,sans-serif;">
+        ama<span style="color:#FF9900;">pro</span>
+    </span>
+    <span style="color:#565959; font-size:16px; margin-left:12px;">使い方ガイド</span>
+</div>
+""", unsafe_allow_html=True)
 
 st.header("このツールでできること")
 st.markdown("""

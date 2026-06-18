@@ -168,19 +168,43 @@ def main():
             st.caption(f"💱 現在レート: 1 USD = ¥{live_rate:.2f}（{rate_date}）")
 
     # ── メインエリア ──
+    st.markdown("""
+    <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
+                padding:20px 24px; margin-bottom:16px;">
+        <h4 style="color:#0F1111; margin:0 0 4px 0;">Excelファイルをアップロード</h4>
+        <p style="color:#565959; font-size:13px; margin:0;">
+            JAN コード（シート1）+ Keepa エクスポート（シート2）入りの Excel
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
     uploaded = st.file_uploader(
-        "卸元の Excel ファイルをアップロード（JAN コード + Keepa エクスポート入り）",
+        "ファイルを選択",
         type=["xlsx"],
+        label_visibility="collapsed",
     )
 
     if uploaded is None:
-        st.info("👆 Excelファイルをドラッグ＆ドロップまたは選択してください")
         st.markdown("""
-        **必要なシート構成：**
-        - **シート1**（商品データ）: JANコード・品名・卸価格
-        - **シート2**（Keepaエクスポート）: Keepa Webからエクスポートしたデータ
-        - **シート3**: 利益計算シート（自動で上書きされます）
-        """)
+        <div style="background:#FFF; border:1px solid #D5D9D9; border-radius:8px;
+                    padding:16px 20px; margin-top:12px;">
+            <p style="color:#0F1111; font-weight:bold; margin:0 0 8px 0;">📋 必要なシート構成</p>
+            <table style="width:100%; font-size:14px; color:#0F1111;">
+                <tr style="border-bottom:1px solid #EAEDED;">
+                    <td style="padding:8px 0; font-weight:bold; color:#FF9900;">シート1</td>
+                    <td style="padding:8px 0;">商品データ（JANコード・品名・卸価格）</td>
+                </tr>
+                <tr style="border-bottom:1px solid #EAEDED;">
+                    <td style="padding:8px 0; font-weight:bold; color:#FF9900;">シート2</td>
+                    <td style="padding:8px 0;">Keepa エクスポートデータ</td>
+                </tr>
+                <tr>
+                    <td style="padding:8px 0; font-weight:bold; color:#FF9900;">シート3</td>
+                    <td style="padding:8px 0;">利益計算シート（自動で上書きされます）</td>
+                </tr>
+            </table>
+        </div>
+        """, unsafe_allow_html=True)
         return
 
     # Excel読み込み
