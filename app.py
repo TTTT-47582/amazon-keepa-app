@@ -20,8 +20,8 @@ import streamlit as st
 from src.excel_io import read_wholesaler_excel, build_ean_to_sheet2_row, generate_sheet3
 
 st.set_page_config(
-    page_title="JAN → US Amazon リサーチ",
-    page_icon="📦",
+    page_title="Amapro - 仕入れリサーチ",
+    page_icon="🔶",
     layout="wide",
 )
 
@@ -119,12 +119,29 @@ def _fetch_exchange_rate() -> tuple[float, str]:
 
 
 def main():
-    st.title("📦 JAN → US Amazon リサーチツール")
-    st.caption("卸問屋のExcelをアップロード → Sheet2のKeepaデータとマッチング → Sheet3に自動生成")
+    st.markdown("""
+    <div style="text-align:center; padding: 10px 0 5px 0;">
+        <div style="display:inline-block; position:relative;">
+            <span style="font-size:48px; font-weight:bold; color:#131921; letter-spacing:-1px;
+                         font-family:'Amazon Ember','Helvetica Neue',Arial,sans-serif;">
+                ama<span style="color:#FF9900;">pro</span>
+            </span>
+            <svg width="120" height="20" viewBox="0 0 120 20"
+                 style="display:block; margin:-8px auto 0 auto;">
+                <path d="M10 12 Q60 28 110 8" stroke="#FF9900" stroke-width="3"
+                      fill="none" stroke-linecap="round"/>
+                <polygon points="107,3 115,7 107,11" fill="#FF9900"/>
+            </svg>
+        </div>
+        <p style="color:#565959; font-size:14px; margin-top:2px;">
+            卸 Excel アップロード → Keepa マッチング → Sheet3 自動生成
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── サイドバー ──
     with st.sidebar:
-        st.header("⚙️ 設定")
+        st.markdown("<h3 style='color:#FF9900;'>⚙️ 設定</h3>", unsafe_allow_html=True)
 
         live_rate, rate_date = _fetch_exchange_rate()
         if rate_date:
