@@ -52,18 +52,21 @@ def build_ean_to_sheet2_row(file_buffer, sheet_name: str | int = 1) -> dict[str,
     ean_to_price: dict[str, float] = {}
 
     for idx, row in raw.iterrows():
-        ean = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
-        if not ean or not ean.replace(" ", "").isdigit():
+        ean_raw = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+        if not ean_raw:
             continue
-        ean = ean.replace(" ", "")
         excel_row = idx + 2  # pandas 0-indexed → Excel 1-indexed + header
-
         buy_box = _safe_float(row.iloc[14]) or 0
 
-        old_price = ean_to_price.get(ean, -1)
-        if buy_box > old_price:
-            ean_to_row[ean] = excel_row
-            ean_to_price[ean] = buy_box
+        # カンマ区切りの複数EANに対応
+        for ean in ean_raw.split(","):
+            ean = ean.strip().replace(" ", "")
+            if not ean or not ean.isdigit() or len(ean) < 8:
+                continue
+            old_price = ean_to_price.get(ean, -1)
+            if buy_box > old_price:
+                ean_to_row[ean] = excel_row
+                ean_to_price[ean] = buy_box
 
     return ean_to_row
 
