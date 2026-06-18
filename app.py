@@ -80,8 +80,10 @@ def main():
             st.session_state["uploaded_name"] = uploaded.name
             st.session_state["generated"] = False
 
-    df = st.session_state["uploaded_df"]
-    ean_to_row = st.session_state["ean_to_row"]
+    df = st.session_state.get("uploaded_df")
+    ean_to_row = st.session_state.get("ean_to_row")
+    if df is None or ean_to_row is None:
+        return
 
     unique_jans = df["jan_code"].nunique()
     matched = sum(1 for jan in df["jan_code"].unique() if jan in ean_to_row)
