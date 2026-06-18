@@ -134,11 +134,23 @@ def main():
                          font-family:'Amazon Ember','Helvetica Neue',Arial,sans-serif;">
                 ama<span style="color:#FF9900;">pro</span>
             </span>
-            <svg width="120" height="20" viewBox="0 0 120 20"
-                 style="display:block; margin:-8px auto 0 auto;">
-                <path d="M10 12 Q60 28 110 8" stroke="#FF9900" stroke-width="3"
-                      fill="none" stroke-linecap="round"/>
-                <polygon points="107,3 115,7 107,11" fill="#FF9900"/>
+            <svg width="140" height="28" viewBox="0 0 140 28"
+                 style="display:block; margin:-4px auto 0 auto;">
+                <!-- コインが弾む軌跡 -->
+                <path d="M10 22 Q25 8 40 18 Q55 4 70 16 Q85 0 100 14 Q110 6 125 10"
+                      stroke="#FF9900" stroke-width="2" fill="none"
+                      stroke-linecap="round" stroke-dasharray="4 2"/>
+                <!-- コイン（小→大） -->
+                <circle cx="10" cy="22" r="4" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
+                <text x="10" y="24" text-anchor="middle" font-size="5" fill="#C7511F" font-weight="bold">¥</text>
+                <circle cx="40" cy="18" r="5" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
+                <text x="40" y="20" text-anchor="middle" font-size="6" fill="#C7511F" font-weight="bold">$</text>
+                <circle cx="70" cy="16" r="6" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
+                <text x="70" y="18.5" text-anchor="middle" font-size="7" fill="#C7511F" font-weight="bold">$</text>
+                <circle cx="100" cy="14" r="7" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
+                <text x="100" y="17" text-anchor="middle" font-size="8" fill="#C7511F" font-weight="bold">$</text>
+                <circle cx="128" cy="10" r="8" fill="#FFD814" stroke="#E88B00" stroke-width="1.5"/>
+                <text x="128" y="13.5" text-anchor="middle" font-size="9" fill="#C7511F" font-weight="bold">$</text>
             </svg>
         </div>
     </div>
