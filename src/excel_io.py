@@ -205,6 +205,130 @@ def generate_sheet3(
     return {"total_jans": len(unique_jans), "matched": matched, "output_path": str(output_path)}
 
 
+def generate_sheet3_from_api(
+    wholesaler_df: pd.DataFrame,
+    keepa_results: dict[str, dict],
+    output_path: str | Path,
+    exchange_rate: float = 150.0,
+):
+    """
+    Keepa API結果からExcelを新規作成し、Sheet3に計算値を書き込む。
+    Sheet2がないExcel用（API取得モード）。
+    """
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    output_path = Path(output_path)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "リサーチ結果"
+
+    # ヘッダー
+    _BLUE = PatternFill("solid", fgColor="0000FF")
+    _GREEN = PatternFill("solid", fgColor="B6D7A8")
+    _RED = PatternFill("solid", fgColor="FF0000")
+    _LIME = PatternFill("solid", fgColor="00FF00")
+    _ORANGE = PatternFill("solid", fgColor="F9CB9C")
+    _HEADER_FONT = Font(bold=True, size=10)
+
+    headers = [
+        (1, "重複確認", _BLUE), (2, "日付", _BLUE), (3, "購入先問屋", _BLUE),
+        (4, "商品名", _GREEN), (5, "タイトル", _GREEN), (6, "SKU", _GREEN),
+        (7, "ASIN", _GREEN), (8, "備考", _GREEN), (9, "型番", _GREEN),
+        (10, "購入在庫", _GREEN), (11, "売価最新更新日", _GREEN),
+        (12, "セット内容", _GREEN), (13, "BBセラー", _GREEN),
+        (14, "卸価格", _GREEN), (15, "30キーパ", _GREEN),
+        (16, "セラー数（FBA）", _GREEN), (17, "セラー数（FBM）", _GREEN),
+        (18, "販売数", PatternFill("solid", fgColor="FFF2CC")),
+        (19, "初回仕入れ", _BLUE), (20, "売価USD", _GREEN),
+        (21, "仕入＋送料（FBA）", _ORANGE), (22, "Amazon手数料", _GREEN),
+        (23, "仕入値", _GREEN), (24, "Weight（FBA）", _GREEN),
+        (25, "損益", _RED), (26, "利益額", _RED), (27, "利益率", _RED),
+        (28, "利益額2", _LIME), (29, "売上", _LIME), (30, "手数料", _LIME),
+        (31, "原価", _LIME), (32, "原価送料", _LIME), (33, "利益/円", _LIME),
+    ]
+    for col_num, text, fill in headers:
+        cell = ws.cell(row=1, column=col_num, value=text)
+        cell.font = _HEADER_FONT
+        cell.fill = fill
+        ws.column_dimensions[get_column_letter(col_num)].width = 13
+
+    # 定数
+    AH, AI = exchange_rate, 3
+    ws.cell(row=1, column=34, value=AH)
+    ws.cell(row=1, column=35, value=AI)
+
+    from datetime import date
+    today = date.today().isoformat()
+
+    unique_jans = wholesaler_df["jan_code"].unique()
+    matched = 0
+    out_row = 2
+
+    for jan in unique_jans:
+        kp = keepa_results.get(jan)
+        if not kp or not kp.get("found"):
+            continue
+
+        ws_data = wholesaler_df[wholesaler_df["jan_code"] == jan].iloc[0]
+        matched += 1
+        n = out_row
+
+        N = ws_data.get("wholesale_price", 0)
+        T = kp.get("buy_box_price_usd")
+        V = kp.get("total_amazon_fee_usd")
+        X = kp.get("package_weight_g") or 0
+        O = kp.get("sales_rank_drops_30")
+        P = kp.get("fba_seller_count") or 0
+        S = 5
+        L = 1
+        W = L * N * 1.1
+        U = (W + X * AI) / AH if AH > 0 else 0
+
+        ws.cell(row=n, column=2, value=today)
+        ws.cell(row=n, column=4, value=ws_data.get("product_name_jp", ""))
+        ws.cell(row=n, column=5, value=kp.get("title", ""))
+        ws.cell(row=n, column=7, value=kp.get("asin", ""))
+        ws.cell(row=n, column=9, value=ws_data.get("part_number", ""))
+        ws.cell(row=n, column=12, value=L)
+        ws.cell(row=n, column=13, value=kp.get("buy_box_seller", ""))
+        ws.cell(row=n, column=14, value=N)
+        ws.cell(row=n, column=15, value=O)
+        ws.cell(row=n, column=16, value=P)
+        ws.cell(row=n, column=17, value=kp.get("fbm_seller_count"))
+        ws.cell(row=n, column=19, value=S)
+        ws.cell(row=n, column=20, value=T)
+        ws.cell(row=n, column=22, value=V)
+        ws.cell(row=n, column=24, value=X if X > 0 else None)
+
+        # 計算値を直接書き込み
+        ws.cell(row=n, column=23, value=round(W) if W else None)
+        ws.cell(row=n, column=21, value=round(U, 2) if U else None)
+
+        if T and T > 0 and V is not None:
+            Y = T - U - V
+            Z = (O / (P + 1)) * Y if O else 0
+            AA = Y / T
+            AB = Y * S
+            AG = AB * AH
+            ws.cell(row=n, column=25, value=round(Y, 2))
+            ws.cell(row=n, column=26, value=round(Z, 2))
+            c = ws.cell(row=n, column=27, value=round(AA, 4))
+            c.number_format = "0.00%"
+            ws.cell(row=n, column=28, value=round(AB, 2))
+            ws.cell(row=n, column=29, value=round(S * T * AI, 2))
+            ws.cell(row=n, column=30, value=round(V * AI * S, 2))
+            ws.cell(row=n, column=31, value=round(S * W, 2))
+            ws.cell(row=n, column=32, value=round(S * X * AI, 2))
+            ws.cell(row=n, column=33, value=round(AG, 2))
+
+        out_row += 1
+
+    wb.save(output_path)
+    wb.close()
+    return {"total_jans": len(unique_jans), "matched": matched, "output_path": str(output_path)}
+
+
 def build_dashboard_data(
     wholesaler_df: pd.DataFrame,
     ean_to_row: dict[str, int],

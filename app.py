@@ -17,7 +17,8 @@ import platform
 from pathlib import Path
 import requests
 import streamlit as st
-from src.excel_io import read_wholesaler_excel, build_ean_to_sheet2_row, generate_sheet3
+from src.excel_io import read_wholesaler_excel, build_ean_to_sheet2_row, generate_sheet3, generate_sheet3_from_api
+from src.keepa_client import query_jan_codes_us, estimate_tokens, _get_api, _resolve_api_key
 
 st.set_page_config(
     page_title="Amapro - 仕入れリサーチ",
@@ -175,6 +176,22 @@ def main():
         """, unsafe_allow_html=True)
         st.markdown("<h3 style='color:#FF9900;'>⚙️ 設定</h3>", unsafe_allow_html=True)
 
+        data_mode = st.radio(
+            "データ取得モード",
+            ["📄 Excel内Keepaデータ（Sheet2）", "🌐 Keepa APIで取得"],
+            index=0,
+        )
+        use_api = data_mode.startswith("🌐")
+
+        api_key = ""
+        max_items = 100
+        if use_api:
+            env_key = os.getenv("KEEPA_API_KEY", "")
+            api_key = st.text_input("Keepa API キー", value=env_key, type="password")
+            max_items = st.number_input("処理上限件数", min_value=10, max_value=5000, value=100, step=50)
+
+        st.divider()
+
         live_rate, rate_date = _fetch_exchange_rate()
         if rate_date:
             st.caption(f"💱 現在レート: 1 USD = ¥{live_rate:.2f}（{rate_date}）")
@@ -227,52 +244,83 @@ def main():
                 if df.empty:
                     st.error("JANコードが見つかりませんでした。シート1にJANコード列があるか確認してください。")
                     return
-                uploaded.seek(0)
-                import openpyxl as _xl
-                _wb = _xl.load_workbook(uploaded, read_only=True)
-                sheet_count = len(_wb.sheetnames)
-                _wb.close()
-                if sheet_count < 2:
-                    st.error(
-                        f"シートが{sheet_count}枚しかありません。\n\n"
-                        "このツールには **シート2（Keepaエクスポートデータ）** が必要です。\n\n"
-                        "Keepa Webからエクスポートしたデータをシート2に追加してからアップロードしてください。"
-                    )
-                    st.info(f"✅ シート1のJANコードは **{len(df):,} 件** 正常に読み取れました。")
-                    return
-                uploaded.seek(0)
-                ean_to_row = build_ean_to_sheet2_row(uploaded)
+
+                ean_to_row = {}
+                if not use_api:
+                    uploaded.seek(0)
+                    import openpyxl as _xl
+                    _wb = _xl.load_workbook(uploaded, read_only=True)
+                    sheet_count = len(_wb.sheetnames)
+                    _wb.close()
+                    if sheet_count < 2:
+                        st.error(
+                            f"シートが{sheet_count}枚しかありません。\n\n"
+                            "**📄 Excelモード**にはシート2（Keepaエクスポート）が必要です。\n\n"
+                            "サイドバーで **🌐 Keepa APIで取得** モードに切り替えるか、"
+                            "シート2を追加してください。"
+                        )
+                        st.info(f"✅ シート1のJANコードは **{len(df):,} 件** 正常に読み取れました。")
+                        return
+                    uploaded.seek(0)
+                    ean_to_row = build_ean_to_sheet2_row(uploaded)
             except Exception as e:
                 st.error(f"Excel読み込みエラー: {e}")
                 return
             st.session_state["uploaded_df"] = df
             st.session_state["ean_to_row"] = ean_to_row
             st.session_state["uploaded_name"] = uploaded.name
+            st.session_state["uploaded_mode"] = "api" if use_api else "excel"
             st.session_state["generated"] = False
 
     df = st.session_state.get("uploaded_df")
-    ean_to_row = st.session_state.get("ean_to_row")
-    if df is None or ean_to_row is None:
+    if df is None:
         return
 
     unique_jans = df["jan_code"].nunique()
-    matched = sum(1 for jan in df["jan_code"].unique() if jan in ean_to_row)
-
     st.success(f"✅ **{len(df):,} 行**読み込み（ユニーク JAN: **{unique_jans:,} 件**）")
-    st.info(f"🔍 Sheet2 とマッチ: **{matched:,} 件** / {unique_jans:,} 件")
+
+    if not use_api:
+        ean_to_row = st.session_state.get("ean_to_row")
+        if ean_to_row is None:
+            return
+        matched = sum(1 for jan in df["jan_code"].unique() if jan in ean_to_row)
+        st.info(f"🔍 Sheet2 とマッチ: **{matched:,} 件** / {unique_jans:,} 件")
 
     with st.expander("📋 データプレビュー（先頭20行）", expanded=False):
         st.dataframe(df.head(20), use_container_width=True)
 
+    # APIモード: トークン情報表示
+    if use_api:
+        process_count = min(unique_jans, max_items)
+        tokens = estimate_tokens(process_count)
+        st.info(
+            f"🔍 処理対象: **{process_count:,} 件**\n\n"
+            f"💰 推定トークン: **{tokens:,}**　｜　⏱ 約{max(tokens // 50, 1)}分"
+        )
+
     # 処理実行
-    start_btn = st.button(
-        "🚀 Sheet3 を自動生成",
-        type="primary",
-        use_container_width=True,
-    )
+    btn_label = "🚀 Sheet3 を自動生成" if not use_api else "🚀 Keepa API で取得＆生成"
+    start_btn = st.button(btn_label, type="primary", use_container_width=True)
 
     if start_btn:
-        _run_generation(uploaded)
+        if use_api:
+            if not api_key:
+                st.error("Keepa API キーを入力してください")
+                return
+            # トークン残高チェック
+            try:
+                api = _get_api(_resolve_api_key(api_key))
+                tokens_left = api.tokens_left
+                st.write(f"🔑 トークン残高: **{tokens_left}**")
+                needed = estimate_tokens(min(unique_jans, max_items))
+                if tokens_left < needed:
+                    st.error(f"⚠️ トークン不足（必要: {needed} / 残高: {tokens_left}）")
+                    return
+            except Exception as e:
+                st.warning(f"トークン確認失敗: {e}")
+            _run_api_generation(df, api_key, max_items, live_rate)
+        else:
+            _run_generation(uploaded)
 
     if st.session_state.get("generated"):
         output_path = st.session_state.get("output_path")
@@ -323,6 +371,50 @@ def _run_generation(uploaded_file):
     st.success(
         f"🎉 完了！ **{result['matched']:,} 件**をSheet3に生成 "
         f"（全{result['total_jans']:,} JAN中）"
+    )
+
+
+def _run_api_generation(df, api_key: str, max_items: int, exchange_rate: float):
+    """Keepa APIでJANコードを取得してSheet3を生成する"""
+    unique_jans = df["jan_code"].unique().tolist()[:max_items]
+
+    progress_bar = st.progress(0, text="Keepa API に問い合わせ中...")
+
+    def on_progress(done, total):
+        progress_bar.progress(done / total, text=f"処理中... {done:,}/{total:,} 件")
+
+    try:
+        keepa_results = query_jan_codes_us(
+            unique_jans, api_key=api_key,
+            batch_size=100, use_offers=False,
+            progress_callback=on_progress,
+        )
+    except Exception as e:
+        st.error(f"Keepa API エラー: {e}")
+        return
+
+    progress_bar.progress(1.0, text="完了！")
+
+    desktop = Path.home() / "Desktop"
+    if desktop.exists():
+        output_path = desktop / "リサーチ結果.xlsx"
+    else:
+        output_path = Path(tempfile.gettempdir()) / "リサーチ結果.xlsx"
+
+    try:
+        result = generate_sheet3_from_api(df, keepa_results, output_path, exchange_rate)
+    except Exception as e:
+        st.error(f"Excel生成エラー: {e}")
+        return
+
+    found = sum(1 for r in keepa_results.values() if r.get("found"))
+    st.session_state["generated"] = True
+    st.session_state["output_path"] = str(output_path)
+    st.session_state["gen_result"] = result
+
+    st.success(
+        f"🎉 完了！ **{found:,} 件**がUS Amazonに出品あり "
+        f"（全{len(unique_jans):,} JAN中）"
     )
 
 
