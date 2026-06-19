@@ -222,9 +222,29 @@ def main():
     # Excel読み込み
     if "uploaded_df" not in st.session_state or st.session_state.get("uploaded_name") != uploaded.name:
         with st.spinner("Excel を読み込み中..."):
-            df = read_wholesaler_excel(uploaded)
-            uploaded.seek(0)
-            ean_to_row = build_ean_to_sheet2_row(uploaded)
+            try:
+                df = read_wholesaler_excel(uploaded)
+                if df.empty:
+                    st.error("JANコードが見つかりませんでした。シート1にJANコード列があるか確認してください。")
+                    return
+                uploaded.seek(0)
+                import openpyxl as _xl
+                _wb = _xl.load_workbook(uploaded, read_only=True)
+                sheet_count = len(_wb.sheetnames)
+                _wb.close()
+                if sheet_count < 2:
+                    st.error(
+                        f"シートが{sheet_count}枚しかありません。\n\n"
+                        "このツールには **シート2（Keepaエクスポートデータ）** が必要です。\n\n"
+                        "Keepa Webからエクスポートしたデータをシート2に追加してからアップロードしてください。"
+                    )
+                    st.info(f"✅ シート1のJANコードは **{len(df):,} 件** 正常に読み取れました。")
+                    return
+                uploaded.seek(0)
+                ean_to_row = build_ean_to_sheet2_row(uploaded)
+            except Exception as e:
+                st.error(f"Excel読み込みエラー: {e}")
+                return
             st.session_state["uploaded_df"] = df
             st.session_state["ean_to_row"] = ean_to_row
             st.session_state["uploaded_name"] = uploaded.name

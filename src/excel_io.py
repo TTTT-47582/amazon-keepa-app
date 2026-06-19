@@ -15,27 +15,57 @@ import pandas as pd
 
 
 def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
-    """卸問屋Excelから JAN コード・品名・卸価格などを読み取る。"""
+    """
+    卸問屋Excelから JAN コード・品名・卸価格などを読み取る。
+    ヘッダー名で列を自動検出するため、列位置が異なるExcelにも対応。
+    """
     raw = pd.read_excel(
         file_buffer,
         sheet_name=0,
-        usecols=[3, 4, 5, 7, 8, 9],
         header=0,
         dtype=str,
         engine="openpyxl",
     )
-    raw.columns = [
-        "jan_code", "product_name_jp", "part_number",
-        "retail_price", "wholesale_price", "box_qty",
-    ]
-    raw["jan_code"] = raw["jan_code"].fillna("").str.strip()
-    raw = raw[raw["jan_code"].str.match(r"^\d{8,}$", na=False)].copy()
-    raw["retail_price"] = pd.to_numeric(raw["retail_price"], errors="coerce").fillna(0)
-    raw["wholesale_price"] = pd.to_numeric(raw["wholesale_price"], errors="coerce").fillna(0)
-    raw["box_qty"] = pd.to_numeric(raw["box_qty"], errors="coerce").fillna(1).astype(int)
-    raw["product_name_jp"] = raw["product_name_jp"].fillna("")
-    raw["part_number"] = raw["part_number"].fillna("")
-    return raw.reset_index(drop=True)
+
+    # ヘッダー名から列を自動検出
+    col_map = {}
+    for col in raw.columns:
+        col_upper = str(col).strip().upper()
+        if "JAN" in col_upper and "jan_code" not in col_map:
+            col_map["jan_code"] = col
+        elif col_upper in ("品名", "商品名") and "product_name_jp" not in col_map:
+            col_map["product_name_jp"] = col
+        elif col_upper in ("品番", "型番") and "part_number" not in col_map:
+            col_map["part_number"] = col
+        elif col_upper in ("定価", "上代") and "retail_price" not in col_map:
+            col_map["retail_price"] = col
+        elif col_upper in ("卸", "卸価格", "仕入値", "仕入れ値") and "wholesale_price" not in col_map:
+            col_map["wholesale_price"] = col
+        elif col_upper in ("箱入数", "出荷単位", "入数", "ロット") and "box_qty" not in col_map:
+            col_map["box_qty"] = col
+
+    # JAN列が見つからない場合、13桁数字が多い列を探す
+    if "jan_code" not in col_map:
+        for col in raw.columns:
+            vals = raw[col].fillna("").str.strip()
+            digit_match = vals.str.match(r"^\d{8,13}$")
+            if digit_match.sum() > len(raw) * 0.3:
+                col_map["jan_code"] = col
+                break
+
+    if "jan_code" not in col_map:
+        return pd.DataFrame()
+
+    result = pd.DataFrame()
+    result["jan_code"] = raw[col_map["jan_code"]].fillna("").str.strip()
+    result["product_name_jp"] = raw[col_map.get("product_name_jp", result.columns[0])].fillna("") if "product_name_jp" in col_map else ""
+    result["part_number"] = raw[col_map.get("part_number", result.columns[0])].fillna("") if "part_number" in col_map else ""
+    result["retail_price"] = pd.to_numeric(raw[col_map["retail_price"]], errors="coerce").fillna(0) if "retail_price" in col_map else 0
+    result["wholesale_price"] = pd.to_numeric(raw[col_map["wholesale_price"]], errors="coerce").fillna(0) if "wholesale_price" in col_map else 0
+    result["box_qty"] = pd.to_numeric(raw[col_map["box_qty"]], errors="coerce").fillna(1).astype(int) if "box_qty" in col_map else 1
+
+    result = result[result["jan_code"].str.match(r"^\d{8,}$", na=False)].copy()
+    return result.reset_index(drop=True)
 
 
 def build_ean_to_sheet2_row(file_buffer, sheet_name: str | int = 1) -> dict[str, int]:
@@ -173,6 +203,91 @@ def generate_sheet3(
     wb.close()
 
     return {"total_jans": len(unique_jans), "matched": matched, "output_path": str(output_path)}
+
+
+def build_dashboard_data(
+    wholesaler_df: pd.DataFrame,
+    ean_to_row: dict[str, int],
+    file_buffer,
+    sheet_name: str | int = 1,
+    exchange_rate: float = 150.0,
+) -> pd.DataFrame:
+    """
+    Sheet1 + Sheet2 のデータを結合し、利益計算済みのDataFrameを返す。
+    ダッシュボード表示・フィルタリング用。
+    """
+    raw = pd.read_excel(
+        file_buffer, sheet_name=sheet_name,
+        header=0, dtype=str, engine="openpyxl",
+    )
+
+    # Sheet2の行番号 → データ辞書
+    row_to_data: dict[int, dict] = {}
+    for idx, row in raw.iterrows():
+        excel_row = idx + 2
+        row_to_data[excel_row] = {
+            "title": str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else "",
+            "asin": str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else "",
+            "buy_box_usd": _safe_float(row.iloc[14]),
+            "drops_30": _safe_float(row.iloc[5]),
+            "fba_sellers": _safe_float(row.iloc[24]) or 0,
+            "fbm_sellers": _safe_float(row.iloc[25]) or 0,
+            "weight_g": _safe_float(row.iloc[29]) or 0,
+            "amazon_fee": _safe_float(row.iloc[42]) if len(row) > 42 else None,
+            "wholesale_keepa": _safe_float(row.iloc[38]) if len(row) > 38 else None,
+        }
+
+    AH = exchange_rate
+    AI = 3
+    results = []
+
+    for jan in wholesaler_df["jan_code"].unique():
+        if jan not in ean_to_row:
+            continue
+        s2r = ean_to_row[jan]
+        s2 = row_to_data.get(s2r)
+        if not s2:
+            continue
+
+        ws = wholesaler_df[wholesaler_df["jan_code"] == jan].iloc[0]
+
+        # N値（Keepa卸優先、乖離大なら卸データ）
+        keepa_ws = s2.get("wholesale_keepa") or 0
+        input_ws = ws.get("wholesale_price", 0)
+        if keepa_ws > 0 and input_ws > 0:
+            ratio = max(keepa_ws, input_ws) / min(keepa_ws, input_ws)
+            N = keepa_ws if ratio < 3 else input_ws
+        else:
+            N = keepa_ws or input_ws
+
+        T = s2["buy_box_usd"]
+        V = s2["amazon_fee"]
+        X = s2["weight_g"]
+        W = N * 1.1
+        U = (W + X * AI) / AH if AH > 0 else 0
+        Y = (T - U - V) if T and V else None
+        P = s2["fba_sellers"]
+        O = s2["drops_30"]
+        AA = (Y / T) if Y is not None and T and T > 0 else None
+
+        results.append({
+            "JAN": jan,
+            "ASIN": s2["asin"],
+            "タイトル": s2["title"][:60],
+            "商品名": ws.get("product_name_jp", "")[:30],
+            "売価USD": T,
+            "仕入値(税込)": round(W) if W else None,
+            "仕入+送料USD": round(U, 2) if U else None,
+            "手数料USD": V,
+            "損益USD": round(Y, 2) if Y is not None else None,
+            "利益率": round(AA, 4) if AA is not None else None,
+            "30日drop": O,
+            "FBAセラー": int(P),
+            "FBMセラー": int(s2["fbm_sellers"]),
+            "重量g": int(X) if X else None,
+        })
+
+    return pd.DataFrame(results)
 
 
 def _safe_float(val) -> float | None:
