@@ -49,6 +49,12 @@ st.markdown("""
     section[data-testid="stSidebar"] .stTextInput label {
         color: #FF9900 !important;
     }
+    section[data-testid="stSidebar"] input,
+    section[data-testid="stSidebar"] .stNumberInput input,
+    section[data-testid="stSidebar"] .stTextInput input {
+        color: #0F1111 !important;
+        background-color: #FFFFFF !important;
+    }
     section[data-testid="stSidebar"] hr {
         border-color: #3B4859 !important;
     }
