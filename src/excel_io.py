@@ -160,42 +160,58 @@ def generate_sheet3(
     out_row = 3
     unique_jans = df["jan_code"].unique()
 
+    # JANコード → 卸データのマッピング
+    jan_to_ws = {}
+    for _, row in df.iterrows():
+        jan = row["jan_code"]
+        if jan not in jan_to_ws:
+            jan_to_ws[jan] = row.to_dict()
+
     matched = 0
+    unmatched = 0
     for jan in unique_jans:
-        if jan not in ean_to_row:
-            continue
-
-        s2r = ean_to_row[jan]  # Sheet2の行番号
         n = out_row
-        matched += 1
+        ws_data = jan_to_ws.get(jan, {})
 
-        # Sheet2への参照（元Sheet3と同一パターン）
-        ws.cell(row=n, column=4, value=f"={sq}!AR{s2r}")     # D: 商品名日本語
-        title = row_to_title.get(s2r, "")
-        ws.cell(row=n, column=5, value=title)                  # E: タイトル（固定値）
-        ws.cell(row=n, column=7, value=f"={sq}!B{s2r}")       # G: ASIN
-        ws.cell(row=n, column=9, value=f"={sq}!E{s2r}")       # I: 型番/PartNumber
-        ws.cell(row=n, column=11, value=1)                     # K: セット内容
-        ws.cell(row=n, column=14, value=f"={sq}!AM{s2r}")     # N: 卸（Keepaエクスポート）
-        ws.cell(row=n, column=15, value=f"={sq}!F{s2r}")      # O: 30日ランク下落
-        ws.cell(row=n, column=16, value=f"={sq}!Y{s2r}")      # P: FBAセラー数
-        ws.cell(row=n, column=19, value=5)                     # S: 初回仕入れ
-        ws.cell(row=n, column=20, value=f"={sq}!O{s2r}")      # T: Buy Box価格
-        ws.cell(row=n, column=22, value=f"={sq}!AQ{s2r}")     # V: FBA手数料
-        ws.cell(row=n, column=24, value=f"={sq}!AD{s2r}")     # X: Weight
+        if jan in ean_to_row:
+            # マッチあり: Sheet2への参照数式
+            s2r = ean_to_row[jan]
+            matched += 1
 
-        # 計算式（元Sheet3と完全に同一）
-        ws.cell(row=n, column=23, value=f"=K{n}*N{n}*1.1")                # W: 仕入値
-        ws.cell(row=n, column=21, value=f"=(W{n}+(X{n}*$AI$2))/$AH$2")    # U: 仕入＋送料
-        ws.cell(row=n, column=25, value=f"=(T{n}-U{n}-V{n})")             # Y: 損益
-        ws.cell(row=n, column=26, value=f"=(O{n}/(P{n}+1))*Y{n}")         # Z: 利益額
-        ws.cell(row=n, column=27, value=f"=Y{n}/T{n}")                    # AA: 利益率
-        ws.cell(row=n, column=28, value=f"=Y{n}*S{n}")                    # AB: 利益額2
-        ws.cell(row=n, column=29, value=f"=S{n}*T{n}*$AI$2")             # AC: 売上
-        ws.cell(row=n, column=30, value=f"=V{n}*$AI$2*S{n}")             # AD: 手数料
-        ws.cell(row=n, column=31, value=f"=S{n}*W{n}")                    # AE: 原価
-        ws.cell(row=n, column=32, value=f"=S{n}*X{n}*$AI$2")             # AF: 原価送料
-        ws.cell(row=n, column=33, value=f"=AB{n}*$AH$2")                  # AG: 利益/円
+            ws.cell(row=n, column=4, value=f"={sq}!AR{s2r}")     # D: 商品名日本語
+            title = row_to_title.get(s2r, "")
+            ws.cell(row=n, column=5, value=title)                  # E: タイトル
+            ws.cell(row=n, column=7, value=f"={sq}!B{s2r}")       # G: ASIN
+            ws.cell(row=n, column=9, value=f"={sq}!E{s2r}")       # I: 型番
+            ws.cell(row=n, column=11, value=1)                     # K: セット内容
+            ws.cell(row=n, column=14, value=f"={sq}!AM{s2r}")     # N: 卸
+            ws.cell(row=n, column=15, value=f"={sq}!F{s2r}")      # O: 30日ランク下落
+            ws.cell(row=n, column=16, value=f"={sq}!Y{s2r}")      # P: FBAセラー数
+            ws.cell(row=n, column=19, value=5)                     # S: 初回仕入れ
+            ws.cell(row=n, column=20, value=f"={sq}!O{s2r}")      # T: Buy Box価格
+            ws.cell(row=n, column=22, value=f"={sq}!AQ{s2r}")     # V: FBA手数料
+            ws.cell(row=n, column=24, value=f"={sq}!AD{s2r}")     # X: Weight
+
+            ws.cell(row=n, column=23, value=f"=K{n}*N{n}*1.1")
+            ws.cell(row=n, column=21, value=f"=(W{n}+(X{n}*$AI$2))/$AH$2")
+            ws.cell(row=n, column=25, value=f"=(T{n}-U{n}-V{n})")
+            ws.cell(row=n, column=26, value=f"=(O{n}/(P{n}+1))*Y{n}")
+            ws.cell(row=n, column=27, value=f"=Y{n}/T{n}")
+            ws.cell(row=n, column=28, value=f"=Y{n}*S{n}")
+            ws.cell(row=n, column=29, value=f"=S{n}*T{n}*$AI$2")
+            ws.cell(row=n, column=30, value=f"=V{n}*$AI$2*S{n}")
+            ws.cell(row=n, column=31, value=f"=S{n}*W{n}")
+            ws.cell(row=n, column=32, value=f"=S{n}*X{n}*$AI$2")
+            ws.cell(row=n, column=33, value=f"=AB{n}*$AH$2")
+        else:
+            # マッチなし: 卸データのみ出力
+            unmatched += 1
+            ws.cell(row=n, column=4, value=ws_data.get("product_name_jp", ""))
+            ws.cell(row=n, column=8, value="Keepaデータなし")
+            ws.cell(row=n, column=9, value=ws_data.get("part_number", ""))
+            ws.cell(row=n, column=11, value=1)
+            ws.cell(row=n, column=14, value=ws_data.get("wholesale_price", 0))
+            ws.cell(row=n, column=19, value=5)
 
         out_row += 1
 
