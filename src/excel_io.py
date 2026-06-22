@@ -291,8 +291,8 @@ def generate_sheet3_from_api(
     exchange_rate: float = 150.0,
 ):
     """
-    Keepa API結果からExcelを新規作成し、Sheet3に計算値を書き込む。
-    Sheet2がないExcel用（API取得モード）。
+    Keepa API/エクスポート結果からExcelを新規作成し、Sheet3形式で書き込む。
+    元Sheet3と同一のヘッダー配色・列構成・計算式を再現。
     """
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
@@ -300,56 +300,77 @@ def generate_sheet3_from_api(
     output_path = Path(output_path)
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "リサーチ結果"
+    ws.title = "Sheet3"
 
-    # ヘッダー
-    _BLUE = PatternFill("solid", fgColor="0000FF")
-    _GREEN = PatternFill("solid", fgColor="B6D7A8")
-    _RED = PatternFill("solid", fgColor="FF0000")
-    _LIME = PatternFill("solid", fgColor="00FF00")
-    _ORANGE = PatternFill("solid", fgColor="F9CB9C")
-    _HEADER_FONT = Font(bold=True, size=10)
+    # ── ヘッダー配色（元Sheet3と同一） ──
+    BLUE = PatternFill("solid", fgColor="0000FF")
+    GREEN = PatternFill("solid", fgColor="B6D7A8")
+    YELLOW = PatternFill("solid", fgColor="FFF2CC")
+    RED = PatternFill("solid", fgColor="FF0000")
+    LIME = PatternFill("solid", fgColor="00FF00")
+    ORANGE = PatternFill("solid", fgColor="F9CB9C")
+    HF = Font(bold=True, size=10)
+    NF = Font(size=11)
 
-    headers = [
-        (1, "重複確認", _BLUE), (2, "日付", _BLUE), (3, "購入先問屋", _BLUE),
-        (4, "商品名", _GREEN), (5, "タイトル", _GREEN), (6, "SKU", _GREEN),
-        (7, "ASIN", _GREEN), (8, "備考", _GREEN), (9, "型番", _GREEN),
-        (10, "購入在庫", _GREEN), (11, "売価最新更新日", _GREEN),
-        (12, "セット内容", _GREEN), (13, "BBセラー", _GREEN),
-        (14, "卸価格", _GREEN), (15, "30キーパ", _GREEN),
-        (16, "セラー数（FBA）", _GREEN), (17, "セラー数（FBM）", _GREEN),
-        (18, "販売数", PatternFill("solid", fgColor="FFF2CC")),
-        (19, "初回仕入れ", _BLUE), (20, "売価USD", _GREEN),
-        (21, "仕入＋送料（FBA）", _ORANGE), (22, "Amazon手数料", _GREEN),
-        (23, "仕入値", _GREEN), (24, "Weight（FBA）", _GREEN),
-        (25, "損益", _RED), (26, "利益額", _RED), (27, "利益率", _RED),
-        (28, "利益額2", _LIME), (29, "売上", _LIME), (30, "手数料", _LIME),
-        (31, "原価", _LIME), (32, "原価送料", _LIME), (33, "利益/円", _LIME),
+    # Row2ヘッダー: (列, ヘッダー名, 背景色, 列幅)
+    ROW2 = [
+        (1,"重複確認",BLUE,13),(2,"日付",BLUE,13),(3,"購入先問屋",BLUE,13),
+        (4,"商品名",GREEN,13),(5,"タイトル",GREEN,13),(6,"SKU",GREEN,13),
+        (7,"ASIN",GREEN,15.1),(8,"備考",GREEN,13),(9,"販売可能品",GREEN,11.6),
+        (10,"購入在庫",GREEN,15.4),(11,"売価最新更新日",GREEN,13),
+        (12,"売価90日変化率",GREEN,13),(13,"BBセラー",GREEN,13),
+        (14,"出品許可",GREEN,9),(15,"30キーパ",GREEN,13),
+        (16,"セラー数（FBA）",GREEN,13),(17,"セラー数（無在庫）",GREEN,13),
+        (18,"販売数（自社1M）",YELLOW,13),(19,"初回仕入れ",BLUE,13),
+        (20,"売価USD",GREEN,13),(21,"仕入＋送料（FBA）",ORANGE,13),
+        (22,"Amazon手数料",GREEN,13),(23,"仕入値",GREEN,9.5),
+        (24,"Weight（FBA）",GREEN,13),(25,"損益",RED,13),
+        (26,"利益額",RED,13),(27,"利益率",RED,13),
+        (28,"利益額2",LIME,13),(29,"売上",LIME,13),(30,"手数料",LIME,13),
+        (31,"原価",LIME,10.2),(32,"原価送料",LIME,11.2),(33,"利益/円",LIME,11),
     ]
-    for col_num, text, fill in headers:
-        cell = ws.cell(row=1, column=col_num, value=text)
-        cell.font = _HEADER_FONT
+
+    # Row1サブヘッダー
+    for col, text in [(9,"型番"),(11,"出荷元販売単位"),(12,"セット内容"),
+                       (13,"単位"),(14,"1本単価税込"),(15,"1セット料金")]:
+        ws.cell(row=1, column=col, value=text).font = NF
+
+    # Row2メインヘッダー
+    for col, text, fill, width in ROW2:
+        cell = ws.cell(row=2, column=col, value=text)
+        cell.font = HF
         cell.fill = fill
-        ws.column_dimensions[get_column_letter(col_num)].width = 13
+        cell.alignment = Alignment(wrap_text=True)
+        ws.column_dimensions[get_column_letter(col)].width = width
 
-    # 定数
+    # 定数セル（Row2のAH-AM）
     AH, AI = exchange_rate, 3
-    ws.cell(row=1, column=34, value=AH)
-    ws.cell(row=1, column=35, value=AI)
+    ws.cell(row=2, column=34, value=AH)
+    ws.cell(row=2, column=35, value=AI)
+    ws.cell(row=2, column=36, value="ポンド")
+    ws.cell(row=2, column=37, value=453.59)
+    ws.cell(row=2, column=38, value=0.23)
+    ws.cell(row=2, column=39, value=106.14006)
 
+    # ── データ行（Row3〜） ──
     from datetime import date
     today = date.today().isoformat()
 
     unique_jans = wholesaler_df["jan_code"].unique()
+    jan_to_ws = {}
+    for _, row in wholesaler_df.iterrows():
+        if row["jan_code"] not in jan_to_ws:
+            jan_to_ws[row["jan_code"]] = row.to_dict()
+
     matched = 0
-    out_row = 2
+    out_row = 3
 
     for jan in unique_jans:
         kp = keepa_results.get(jan)
         if not kp or not kp.get("found"):
             continue
 
-        ws_data = wholesaler_df[wholesaler_df["jan_code"] == jan].iloc[0]
+        ws_data = jan_to_ws.get(jan, {})
         matched += 1
         n = out_row
 
@@ -369,7 +390,7 @@ def generate_sheet3_from_api(
         ws.cell(row=n, column=5, value=kp.get("title", ""))
         ws.cell(row=n, column=7, value=kp.get("asin", ""))
         ws.cell(row=n, column=9, value=ws_data.get("part_number", ""))
-        ws.cell(row=n, column=12, value=L)
+        ws.cell(row=n, column=11, value=L)
         ws.cell(row=n, column=13, value=kp.get("buy_box_seller", ""))
         ws.cell(row=n, column=14, value=N)
         ws.cell(row=n, column=15, value=O)
@@ -380,7 +401,7 @@ def generate_sheet3_from_api(
         ws.cell(row=n, column=22, value=V)
         ws.cell(row=n, column=24, value=X if X > 0 else None)
 
-        # 計算値を直接書き込み
+        # 計算値（元Sheet3と同一の計算）
         ws.cell(row=n, column=23, value=round(W) if W else None)
         ws.cell(row=n, column=21, value=round(U, 2) if U else None)
 
