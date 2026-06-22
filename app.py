@@ -203,79 +203,81 @@ def main():
             st.caption(f"💱 現在レート: 1 USD = ¥{live_rate:.2f}（{rate_date}）")
 
     # ── メインエリア ──
-    st.markdown("""
-    <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
-                padding:20px 24px; margin-bottom:16px;">
-        <h4 style="color:#0F1111; margin:0 0 4px 0;">Excelファイルをアップロード</h4>
-        <p style="color:#565959; font-size:13px; margin:0;">
-            JAN コード（シート1）+ Keepa エクスポート（シート2）入りの Excel
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    uploaded = st.file_uploader(
-        "ファイルを選択",
-        type=["xlsx"],
-        label_visibility="collapsed",
-    )
-
-    if uploaded is None:
+    if use_api:
         st.markdown("""
-        <div style="background:#FFF; border:1px solid #D5D9D9; border-radius:8px;
-                    padding:16px 20px; margin-top:12px;">
-            <p style="color:#0F1111; font-weight:bold; margin:0 0 8px 0;">📋 必要なシート構成</p>
-            <table style="width:100%; font-size:14px; color:#0F1111;">
-                <tr style="border-bottom:1px solid #EAEDED;">
-                    <td style="padding:8px 0; font-weight:bold; color:#FF9900;">シート1</td>
-                    <td style="padding:8px 0;">商品データ（JANコード・品名・卸価格）</td>
-                </tr>
-                <tr style="border-bottom:1px solid #EAEDED;">
-                    <td style="padding:8px 0; font-weight:bold; color:#FF9900;">シート2</td>
-                    <td style="padding:8px 0;">Keepa エクスポートデータ</td>
-                </tr>
-                <tr>
-                    <td style="padding:8px 0; font-weight:bold; color:#FF9900;">シート3</td>
-                    <td style="padding:8px 0;">利益計算シート（自動で上書きされます）</td>
-                </tr>
-            </table>
+        <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
+                    padding:20px 24px; margin-bottom:16px;">
+            <h4 style="color:#0F1111; margin:0 0 4px 0;">JANコードExcelをアップロード</h4>
+            <p style="color:#565959; font-size:13px; margin:0;">Keepa APIで自動取得します</p>
         </div>
         """, unsafe_allow_html=True)
+
+        uploaded = st.file_uploader("JANコードExcel", type=["xlsx"], label_visibility="collapsed")
+        uploaded_keepa = None
+    else:
+        st.markdown("""
+        <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
+                    padding:20px 24px; margin-bottom:16px;">
+            <h4 style="color:#0F1111; margin:0 0 4px 0;">2つのファイルをアップロード</h4>
+            <p style="color:#565959; font-size:13px; margin:0;">
+                1つのExcelに2シート入りでも、別々のファイルでもOK
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            st.markdown("**① JANコードExcel（卸データ）**")
+            uploaded = st.file_uploader("JANコードExcel", type=["xlsx"], key="jan_file", label_visibility="collapsed")
+        with fc2:
+            st.markdown("**② Keepaエクスポート（別ファイルの場合）**")
+            uploaded_keepa = st.file_uploader("Keepaエクスポート", type=["xlsx"], key="keepa_file", label_visibility="collapsed")
+
+    if uploaded is None:
         return
 
     # Excel読み込み
-    if "uploaded_df" not in st.session_state or st.session_state.get("uploaded_name") != uploaded.name:
+    cache_key = f"{uploaded.name}_{uploaded_keepa.name if uploaded_keepa else 'none'}"
+    if "uploaded_df" not in st.session_state or st.session_state.get("uploaded_cache_key") != cache_key:
         with st.spinner("Excel を読み込み中..."):
             try:
                 df = read_wholesaler_excel(uploaded)
                 if df.empty:
-                    st.error("JANコードが見つかりませんでした。シート1にJANコード列があるか確認してください。")
+                    st.error("JANコードが見つかりませんでした。JAN列があるか確認してください。")
                     return
 
                 ean_to_row = {}
                 if not use_api:
-                    uploaded.seek(0)
-                    import openpyxl as _xl
-                    _wb = _xl.load_workbook(uploaded, read_only=True)
-                    sheet_count = len(_wb.sheetnames)
-                    _wb.close()
-                    if sheet_count < 2:
+                    # Keepaデータの読み込み: 別ファイル or 同一ファイルのSheet2
+                    keepa_source = None
+                    if uploaded_keepa:
+                        keepa_source = uploaded_keepa
+                    else:
+                        uploaded.seek(0)
+                        import openpyxl as _xl
+                        _wb = _xl.load_workbook(uploaded, read_only=True)
+                        sheet_count = len(_wb.sheetnames)
+                        _wb.close()
+                        if sheet_count >= 2:
+                            uploaded.seek(0)
+                            keepa_source = uploaded
+
+                    if keepa_source is None:
                         st.error(
-                            f"シートが{sheet_count}枚しかありません。\n\n"
-                            "**📄 Excelモード**にはシート2（Keepaエクスポート）が必要です。\n\n"
-                            "サイドバーで **🌐 Keepa APIで取得** モードに切り替えるか、"
-                            "シート2を追加してください。"
+                            "Keepaエクスポートデータがありません。\n\n"
+                            "**② Keepaエクスポート** にファイルをアップロードするか、"
+                            "サイドバーで **🌐 Keepa APIで取得** に切り替えてください。"
                         )
-                        st.info(f"✅ シート1のJANコードは **{len(df):,} 件** 正常に読み取れました。")
+                        st.info(f"✅ JANコードは **{len(df):,} 件** 読み取れました。")
                         return
-                    uploaded.seek(0)
-                    ean_to_row = build_ean_to_sheet2_row(uploaded)
+                    ean_to_row = build_ean_to_sheet2_row(keepa_source, sheet_name=0 if uploaded_keepa else 1)
             except Exception as e:
                 st.error(f"Excel読み込みエラー: {e}")
                 return
             st.session_state["uploaded_df"] = df
             st.session_state["ean_to_row"] = ean_to_row
-            st.session_state["uploaded_name"] = uploaded.name
-            st.session_state["uploaded_mode"] = "api" if use_api else "excel"
+            st.session_state["uploaded_cache_key"] = cache_key
+            st.session_state["uploaded_keepa"] = uploaded_keepa
             st.session_state["generated"] = False
 
     df = st.session_state.get("uploaded_df")
@@ -328,7 +330,7 @@ def main():
                 st.warning(f"トークン確認失敗: {e}")
             _run_api_generation(df, api_key, max_items, live_rate)
         else:
-            _run_generation(uploaded)
+            _run_generation(uploaded, st.session_state.get("uploaded_keepa"))
 
     if st.session_state.get("generated"):
         output_path = st.session_state.get("output_path")
@@ -336,23 +338,36 @@ def main():
         _show_result(output_path, result)
 
 
-def _run_generation(uploaded_file):
-    """元Excelをコピーし、Sheet3を自動生成する"""
+def _run_generation(uploaded_file, keepa_file=None):
+    """元Excelをコピーし、Sheet3を自動生成する。Keepaが別ファイルなら結合する。"""
     with st.spinner("Sheet3 を生成中..."):
-        # アップロードファイルを一時保存
         uploaded_file.seek(0)
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_in:
             tmp_in.write(uploaded_file.read())
             tmp_in_path = tmp_in.name
 
-        # 出力先（ローカルはDesktop、Cloudは一時ディレクトリ）
+        # Keepaが別ファイルの場合、Sheet2として結合
+        if keepa_file:
+            import openpyxl
+            keepa_file.seek(0)
+            keepa_wb = openpyxl.load_workbook(keepa_file)
+            keepa_ws = keepa_wb.active
+            keepa_sheet_name = keepa_ws.title
+
+            main_wb = openpyxl.load_workbook(tmp_in_path)
+            new_ws = main_wb.create_sheet(keepa_sheet_name)
+            for row in keepa_ws.iter_rows(values_only=True):
+                new_ws.append(list(row))
+            main_wb.save(tmp_in_path)
+            main_wb.close()
+            keepa_wb.close()
+
         desktop = Path.home() / "Desktop"
         if desktop.exists():
             output_path = desktop / "リサーチ結果.xlsx"
         else:
             output_path = Path(tempfile.gettempdir()) / "リサーチ結果.xlsx"
 
-        # Sheet2のシート名を取得
         import openpyxl
         wb_tmp = openpyxl.load_workbook(tmp_in_path, read_only=True)
         sheet2_name = wb_tmp.sheetnames[1] if len(wb_tmp.sheetnames) > 1 else "Sheet2"
