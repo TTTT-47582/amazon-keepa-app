@@ -307,15 +307,17 @@ def main():
             if not api_key:
                 st.error("Keepa API キーを入力してください")
                 return
-            # トークン残高チェック
             try:
                 api = _get_api(_resolve_api_key(api_key))
                 tokens_left = api.tokens_left
-                st.write(f"🔑 トークン残高: **{tokens_left}**")
                 needed = estimate_tokens(min(unique_jans, max_items))
+                st.write(f"🔑 トークン残高: **{tokens_left}** / 必要: **{needed}**")
                 if tokens_left < needed:
-                    st.error(f"⚠️ トークン不足（必要: {needed} / 残高: {tokens_left}）")
-                    return
+                    wait_min = max((needed - tokens_left) // 50, 1)
+                    st.warning(
+                        f"トークンが不足していますが、**自動で待機しながら処理**します。\n\n"
+                        f"不足分: {needed - tokens_left} トークン → 約{wait_min}分の追加待ち時間"
+                    )
             except Exception as e:
                 st.warning(f"トークン確認失敗: {e}")
             _run_api_generation(df, api_key, max_items, live_rate)
@@ -375,18 +377,21 @@ def _run_generation(uploaded_file):
 
 
 def _run_api_generation(df, api_key: str, max_items: int, exchange_rate: float):
-    """Keepa APIでJANコードを取得してSheet3を生成する"""
+    """Keepa APIでJANコードを取得してSheet3を生成する（トークン不足時は自動待機）"""
     unique_jans = df["jan_code"].unique().tolist()[:max_items]
 
     progress_bar = st.progress(0, text="Keepa API に問い合わせ中...")
+    status_text = st.empty()
 
     def on_progress(done, total):
-        progress_bar.progress(done / total, text=f"処理中... {done:,}/{total:,} 件")
+        progress_bar.progress(done / total, text=f"処理中... {done:,}/{total:,} 件（トークン不足時は自動待機）")
+        status_text.caption(f"完了: {done:,} / {total:,}")
 
     try:
         keepa_results = query_jan_codes_us(
             unique_jans, api_key=api_key,
-            batch_size=100, use_offers=False,
+            batch_size=50,  # 小刻みにしてトークン補充の猶予を確保
+            use_offers=False,
             progress_callback=on_progress,
         )
     except Exception as e:
