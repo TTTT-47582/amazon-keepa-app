@@ -218,20 +218,15 @@ def main():
         st.markdown("""
         <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
                     padding:20px 24px; margin-bottom:16px;">
-            <h4 style="color:#0F1111; margin:0 0 4px 0;">2つのファイルをアップロード</h4>
+            <h4 style="color:#0F1111; margin:0 0 4px 0;">Excelファイルをアップロード</h4>
             <p style="color:#565959; font-size:13px; margin:0;">
-                1つのExcelに2シート入りでも、別々のファイルでもOK
+                Keepaエクスポート1ファイルでもOK / 卸データ＋Keepaの2ファイルでもOK
             </p>
         </div>
         """, unsafe_allow_html=True)
 
-        fc1, fc2 = st.columns(2)
-        with fc1:
-            st.markdown("**① JANコードExcel（卸データ）**")
-            uploaded = st.file_uploader("JANコードExcel", type=["xlsx"], key="jan_file", label_visibility="collapsed")
-        with fc2:
-            st.markdown("**② Keepaエクスポート（別ファイルの場合）**")
-            uploaded_keepa = st.file_uploader("Keepaエクスポート", type=["xlsx"], key="keepa_file", label_visibility="collapsed")
+        uploaded = st.file_uploader("メインExcel（Keepaエクスポート or 卸データ）", type=["xlsx"], key="jan_file", label_visibility="collapsed")
+        uploaded_keepa = st.file_uploader("追加ファイル（卸データが別にある場合）", type=["xlsx"], key="keepa_file", label_visibility="collapsed")
 
     if uploaded is None:
         return
@@ -242,39 +237,40 @@ def main():
         with st.spinner("Excel を読み込み中..."):
             try:
                 df = read_wholesaler_excel(uploaded)
-                if df.empty:
-                    st.error("JANコードが見つかりませんでした。JAN列があるか確認してください。")
-                    return
 
                 ean_to_row = {}
                 if not use_api:
-                    # Keepaデータの読み込み: 別ファイル or 同一ファイルのSheet2
-                    keepa_source = None
+                    uploaded.seek(0)
+                    import openpyxl as _xl
+                    _wb = _xl.load_workbook(uploaded, read_only=True)
+                    sheet_count = len(_wb.sheetnames)
+                    _wb.close()
+
                     if uploaded_keepa:
                         uploaded_keepa.seek(0)
-                        keepa_source = uploaded_keepa
-                    else:
+                        ean_to_row = build_ean_to_sheet2_row(uploaded_keepa, sheet_name=0)
+                    elif sheet_count >= 2:
                         uploaded.seek(0)
-                        import openpyxl as _xl
-                        _wb = _xl.load_workbook(uploaded, read_only=True)
-                        sheet_count = len(_wb.sheetnames)
-                        _wb.close()
-                        if sheet_count >= 2:
-                            uploaded.seek(0)
-                            keepa_source = uploaded
+                        ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=1)
+                    else:
+                        # 1シートのみ → Keepaエクスポートとして読む
+                        uploaded.seek(0)
+                        ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=0)
 
-                    if keepa_source is None:
-                        st.error(
-                            "Keepaエクスポートデータがありません。\n\n"
-                            "**② Keepaエクスポート** にファイルをアップロードするか、"
-                            "サイドバーで **🌐 Keepa APIで取得** に切り替えてください。"
-                        )
-                        st.info(f"✅ JANコードは **{len(df):,} 件** 読み取れました。")
+                    # JANコードが読めなかった場合、EANをJANとして使う
+                    if df.empty and ean_to_row:
+                        import pandas as _pd
+                        df = _pd.DataFrame({
+                            "jan_code": list(ean_to_row.keys()),
+                            "product_name_jp": "",
+                            "part_number": "",
+                            "retail_price": 0,
+                            "wholesale_price": 0,
+                            "box_qty": 1,
+                        })
+                    elif df.empty:
+                        st.error("JANコードが見つかりませんでした。")
                         return
-                    keepa_source.seek(0)
-                    ean_to_row = build_ean_to_sheet2_row(keepa_source, sheet_name=0 if uploaded_keepa else 1)
-                    if not ean_to_row:
-                        st.warning("Keepaデータからマッチするコードが見つかりませんでしたが、全件出力で続行します。")
             except Exception as e:
                 st.error(f"Excel読み込みエラー: {e}")
                 return
