@@ -225,8 +225,10 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        uploaded = st.file_uploader("メインExcel（Keepaエクスポート or 卸データ）", type=["xlsx"], key="jan_file", label_visibility="collapsed")
-        uploaded_keepa = st.file_uploader("追加ファイル（卸データが別にある場合）", type=["xlsx"], key="keepa_file", label_visibility="collapsed")
+        st.markdown("**① メインExcel**（Keepaエクスポート or 卸データ）")
+        uploaded = st.file_uploader("メインExcel", type=["xlsx"], key="jan_file", label_visibility="collapsed")
+        st.markdown("**② 追加ファイル**（卸データが別にある場合のみ・なければ空でOK）")
+        uploaded_keepa = st.file_uploader("追加ファイル", type=["xlsx"], key="keepa_file", label_visibility="collapsed")
 
     if uploaded is None:
         return
