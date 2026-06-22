@@ -1,1 +1,1 @@
-# src パッケージ
+# Amapro src package
