@@ -68,6 +68,69 @@ def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
     return result.reset_index(drop=True)
 
 
+def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict[str, dict]:
+    """
+    Keepaエクスポートファイルを読み込み、EAN→商品データの辞書を返す。
+    generate_sheet3_from_api と同じ形式。
+    """
+    raw = pd.read_excel(
+        file_buffer, sheet_name=sheet_name,
+        header=0, dtype=str, engine="openpyxl",
+    )
+
+    def sf(val):
+        try:
+            v = float(val)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def si(val):
+        try:
+            return int(float(val))
+        except (TypeError, ValueError):
+            return None
+
+    results: dict[str, dict] = {}
+    best_price: dict[str, float] = {}
+
+    for _, row in raw.iterrows():
+        ean_raw = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+        if not ean_raw:
+            continue
+
+        buy_box = sf(row.iloc[14])
+        total_fee_raw = sf(row.iloc[42]) if len(row) > 42 else None
+        if total_fee_raw is None:
+            fba_pp = sf(row.iloc[20]) or 0 if len(row) > 20 else 0
+            ref = sf(row.iloc[21]) or 0 if len(row) > 21 else 0
+            total_fee_raw = (fba_pp + ref) if (fba_pp + ref) > 0 else None
+
+        product = {
+            "found": buy_box is not None and buy_box > 0,
+            "asin": str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else "",
+            "title": str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else "",
+            "buy_box_price_usd": buy_box,
+            "buy_box_seller": str(row.iloc[16]).strip() if len(row) > 16 and pd.notna(row.iloc[16]) else "",
+            "fba_seller_count": si(row.iloc[24]) or 0 if len(row) > 24 else 0,
+            "fbm_seller_count": si(row.iloc[25]) or 0 if len(row) > 25 else 0,
+            "sales_rank_drops_30": si(row.iloc[5]) if len(row) > 5 else None,
+            "package_weight_g": si(row.iloc[29]) if len(row) > 29 else None,
+            "total_amazon_fee_usd": total_fee_raw,
+        }
+
+        for ean in ean_raw.split(","):
+            ean = ean.strip().replace(" ", "")
+            if not ean or not ean.isdigit() or len(ean) < 8:
+                continue
+            old_price = best_price.get(ean, -1)
+            if (buy_box or 0) > old_price:
+                results[ean] = product
+                best_price[ean] = buy_box or 0
+
+    return results
+
+
 def build_ean_to_sheet2_row(file_buffer, sheet_name: str | int = 1) -> dict[str, int]:
     """
     Sheet2（Keepaエクスポート）を読み、EAN → Sheet2の行番号（1-indexed）のマッピングを作る。

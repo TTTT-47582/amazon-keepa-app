@@ -17,7 +17,7 @@ import platform
 from pathlib import Path
 import requests
 import streamlit as st
-from src.excel_io import read_wholesaler_excel, build_ean_to_sheet2_row, generate_sheet3, generate_sheet3_from_api
+from src.excel_io import read_wholesaler_excel, build_ean_to_sheet2_row, generate_sheet3, generate_sheet3_from_api, read_keepa_export_as_results
 from src.keepa_client import query_jan_codes_us, estimate_tokens, _get_api, _resolve_api_key
 
 st.set_page_config(
@@ -330,12 +330,51 @@ def main():
                 st.warning(f"トークン確認失敗: {e}")
             _run_api_generation(df, api_key, max_items, live_rate)
         else:
-            _run_generation(uploaded, st.session_state.get("uploaded_keepa"))
+            keepa_idx = st.session_state.get("keepa_sheet_idx")
+            if keepa_idx == 0 and not st.session_state.get("uploaded_keepa"):
+                # Keepaエクスポート1ファイルのみ → 直接値出力
+                _run_keepa_only_generation(uploaded, df, live_rate)
+            else:
+                _run_generation(uploaded, st.session_state.get("uploaded_keepa"))
 
     if st.session_state.get("generated"):
         output_path = st.session_state.get("output_path")
         result = st.session_state.get("gen_result", {})
         _show_result(output_path, result)
+
+
+def _run_keepa_only_generation(uploaded_file, df, exchange_rate: float):
+    """Keepaエクスポート1ファイルのみ → 直接値でSheet3を生成"""
+    with st.spinner("Keepaデータを読み込み中..."):
+        uploaded_file.seek(0)
+        keepa_results = read_keepa_export_as_results(uploaded_file, sheet_name=0)
+
+    if not keepa_results:
+        st.error("Keepaデータからマッチする商品が見つかりませんでした。")
+        return
+
+    desktop = Path.home() / "Desktop"
+    if desktop.exists():
+        output_path = desktop / "リサーチ結果.xlsx"
+    else:
+        output_path = Path(tempfile.gettempdir()) / "リサーチ結果.xlsx"
+
+    with st.spinner("Sheet3 を生成中..."):
+        try:
+            result = generate_sheet3_from_api(df, keepa_results, output_path, exchange_rate)
+        except Exception as e:
+            st.error(f"生成エラー: {e}")
+            return
+
+    found = sum(1 for r in keepa_results.values() if r.get("found"))
+    st.session_state["generated"] = True
+    st.session_state["output_path"] = str(output_path)
+    st.session_state["gen_result"] = result
+
+    st.success(
+        f"🎉 完了！ **{found:,} 件**のUS Amazon商品データを出力 "
+        f"（全{result['total_jans']:,} JAN中）"
+    )
 
 
 def _run_generation(uploaded_file, keepa_file=None):
