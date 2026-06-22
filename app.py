@@ -251,6 +251,7 @@ def main():
                     # Keepaデータの読み込み: 別ファイル or 同一ファイルのSheet2
                     keepa_source = None
                     if uploaded_keepa:
+                        uploaded_keepa.seek(0)
                         keepa_source = uploaded_keepa
                     else:
                         uploaded.seek(0)
@@ -270,7 +271,10 @@ def main():
                         )
                         st.info(f"✅ JANコードは **{len(df):,} 件** 読み取れました。")
                         return
+                    keepa_source.seek(0)
                     ean_to_row = build_ean_to_sheet2_row(keepa_source, sheet_name=0 if uploaded_keepa else 1)
+                    if not ean_to_row:
+                        st.warning("Keepaデータからマッチするコードが見つかりませんでしたが、全件出力で続行します。")
             except Exception as e:
                 st.error(f"Excel読み込みエラー: {e}")
                 return
@@ -288,11 +292,9 @@ def main():
     st.success(f"✅ **{len(df):,} 行**読み込み（ユニーク JAN: **{unique_jans:,} 件**）")
 
     if not use_api:
-        ean_to_row = st.session_state.get("ean_to_row")
-        if ean_to_row is None:
-            return
+        ean_to_row = st.session_state.get("ean_to_row") or {}
         matched = sum(1 for jan in df["jan_code"].unique() if jan in ean_to_row)
-        st.info(f"🔍 Sheet2 とマッチ: **{matched:,} 件** / {unique_jans:,} 件")
+        st.info(f"🔍 Keepaデータとマッチ: **{matched:,} 件** / {unique_jans:,} 件（未マッチも全件出力されます）")
 
     with st.expander("📋 データプレビュー（先頭20行）", expanded=False):
         st.dataframe(df.head(20), use_container_width=True)
