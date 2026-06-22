@@ -248,16 +248,20 @@ def main():
                     sheet_count = len(_wb.sheetnames)
                     _wb.close()
 
+                    keepa_sheet_idx = None
                     if uploaded_keepa:
                         uploaded_keepa.seek(0)
                         ean_to_row = build_ean_to_sheet2_row(uploaded_keepa, sheet_name=0)
+                        keepa_sheet_idx = "separate"
                     elif sheet_count >= 2:
                         uploaded.seek(0)
                         ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=1)
+                        keepa_sheet_idx = 1
                     else:
                         # 1シートのみ → Keepaエクスポートとして読む
                         uploaded.seek(0)
                         ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=0)
+                        keepa_sheet_idx = 0
 
                     # JANコードが読めなかった場合、EANをJANとして使う
                     if df.empty and ean_to_row:
@@ -280,6 +284,7 @@ def main():
             st.session_state["ean_to_row"] = ean_to_row
             st.session_state["uploaded_cache_key"] = cache_key
             st.session_state["uploaded_keepa"] = uploaded_keepa
+            st.session_state["keepa_sheet_idx"] = keepa_sheet_idx
             st.session_state["generated"] = False
 
     df = st.session_state.get("uploaded_df")
