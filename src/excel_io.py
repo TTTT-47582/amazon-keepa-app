@@ -71,12 +71,53 @@ def read_wholesaler_excel(file_buffer) -> pd.DataFrame:
 def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict[str, dict]:
     """
     Keepaエクスポートファイルを読み込み、EAN→商品データの辞書を返す。
-    generate_sheet3_from_api と同じ形式。
+    列をヘッダー名で自動検出するため、異なるKeepaエクスポート形式に対応。
     """
     raw = pd.read_excel(
         file_buffer, sheet_name=sheet_name,
         header=0, dtype=str, engine="openpyxl",
     )
+
+    # ヘッダー名で列を自動検出
+    col_idx = {}
+    for i, col in enumerate(raw.columns):
+        c = str(col).strip()
+        cu = c.upper()
+        if "EAN" in cu and "ean" not in col_idx:
+            col_idx["ean"] = i
+        if "ASIN" == cu and "asin" not in col_idx:
+            col_idx["asin"] = i
+        if "商品名" in c and "title" not in col_idx and "ランキング" not in c:
+            col_idx["title"] = i
+        if "Buy Box" in c and "現在価格" in c and "buybox" not in col_idx and "中古" not in c:
+            col_idx["buybox"] = i
+        if "Buy Box" in c and "セラー" in c and "bb_seller" not in col_idx:
+            col_idx["bb_seller"] = i
+        if "FBA Pick" in c and "fba_fee" not in col_idx:
+            col_idx["fba_fee"] = i
+        if "紹介料" in c and "現在" not in c and "referral" not in col_idx:
+            col_idx["referral"] = i
+        if "重さ" in c and "パッケージ" in c and "weight" not in col_idx:
+            col_idx["weight"] = i
+        if "90日間の減少" in c and "drops" not in col_idx:
+            col_idx["drops"] = i
+        if "新品アイテム数 FBA" in c and "現在" in c and "fba_count" not in col_idx:
+            col_idx["fba_count"] = i
+        if "新品アイテム数 FBM" in c and "現在" in c and "fbm_count" not in col_idx:
+            col_idx["fbm_count"] = i
+        if "Imported by Code" in c and "ean" not in col_idx:
+            col_idx["ean"] = i
+
+    # EAN列フォールバック
+    if "ean" not in col_idx:
+        for i in range(min(len(raw.columns), 100)):
+            vals = raw.iloc[:, i].fillna("").str.strip()
+            if vals.str.match(r"^\d{8,13}$").sum() > len(raw) * 0.3:
+                col_idx["ean"] = i
+                break
+
+    if "ean" not in col_idx:
+        return {}
 
     def sf(val):
         try:
@@ -91,32 +132,34 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
         except (TypeError, ValueError):
             return None
 
+    def get(row, key):
+        idx = col_idx.get(key)
+        return row.iloc[idx] if idx is not None and idx < len(row) else None
+
     results: dict[str, dict] = {}
     best_price: dict[str, float] = {}
 
     for _, row in raw.iterrows():
-        ean_raw = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+        ean_raw = str(get(row, "ean") or "").strip()
         if not ean_raw:
             continue
 
-        buy_box = sf(row.iloc[14])
-        total_fee_raw = sf(row.iloc[42]) if len(row) > 42 else None
-        if total_fee_raw is None:
-            fba_pp = sf(row.iloc[20]) or 0 if len(row) > 20 else 0
-            ref = sf(row.iloc[21]) or 0 if len(row) > 21 else 0
-            total_fee_raw = (fba_pp + ref) if (fba_pp + ref) > 0 else None
+        buy_box = sf(get(row, "buybox"))
+        fba_fee = sf(get(row, "fba_fee")) or 0
+        referral = sf(get(row, "referral")) or 0
+        total_fee = (fba_fee + referral) if (fba_fee + referral) > 0 else None
 
         product = {
             "found": buy_box is not None and buy_box > 0,
-            "asin": str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else "",
-            "title": str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else "",
+            "asin": str(get(row, "asin") or "").strip(),
+            "title": str(get(row, "title") or "").strip(),
             "buy_box_price_usd": buy_box,
-            "buy_box_seller": str(row.iloc[16]).strip() if len(row) > 16 and pd.notna(row.iloc[16]) else "",
-            "fba_seller_count": si(row.iloc[24]) or 0 if len(row) > 24 else 0,
-            "fbm_seller_count": si(row.iloc[25]) or 0 if len(row) > 25 else 0,
-            "sales_rank_drops_30": si(row.iloc[5]) if len(row) > 5 else None,
-            "package_weight_g": si(row.iloc[29]) if len(row) > 29 else None,
-            "total_amazon_fee_usd": total_fee_raw,
+            "buy_box_seller": str(get(row, "bb_seller") or "").strip(),
+            "fba_seller_count": si(get(row, "fba_count")) or 0,
+            "fbm_seller_count": si(get(row, "fbm_count")) or 0,
+            "sales_rank_drops_30": si(get(row, "drops")),
+            "package_weight_g": si(get(row, "weight")),
+            "total_amazon_fee_usd": total_fee,
         }
 
         for ean in ean_raw.split(","):
@@ -134,24 +177,50 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
 def build_ean_to_sheet2_row(file_buffer, sheet_name: str | int = 1) -> dict[str, int]:
     """
     Sheet2（Keepaエクスポート）を読み、EAN → Sheet2の行番号（1-indexed）のマッピングを作る。
-    同じEANに複数行がある場合、Buy Box価格が最も高い行を優先。
+    EAN列とBuyBox列をヘッダー名で自動検出。
     """
     raw = pd.read_excel(
         file_buffer, sheet_name=sheet_name,
         header=0, dtype=str, engine="openpyxl",
     )
 
+    # EAN列を自動検出（ヘッダー名 → 13桁数字フォールバック）
+    ean_col_idx = None
+    buybox_col_idx = None
+    for i, col in enumerate(raw.columns):
+        col_str = str(col).strip()
+        if ean_col_idx is None and ("Imported by Code" in col_str or
+                ("EAN" in col_str.upper() and "商品コード" in col_str)):
+            ean_col_idx = i
+        if buybox_col_idx is None and "Buy Box" in col_str and "現在価格" in col_str and "中古" not in col_str:
+            buybox_col_idx = i
+
+    # EAN列が見つからなければ13桁数字が多い列を探す
+    if ean_col_idx is None:
+        for i in range(min(len(raw.columns), 100)):
+            vals = raw.iloc[:, i].fillna("").str.strip()
+            if vals.str.match(r"^\d{8,13}$").sum() > len(raw) * 0.3:
+                ean_col_idx = i
+                break
+
+    if ean_col_idx is None:
+        return {}
+
+    # BuyBox列が見つからなければindex 14を使う（元フォーマット互換）
+    if buybox_col_idx is None:
+        buybox_col_idx = 14 if len(raw.columns) > 14 else None
+
     ean_to_row: dict[str, int] = {}
     ean_to_price: dict[str, float] = {}
 
     for idx, row in raw.iterrows():
-        ean_raw = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+        ean_raw = str(row.iloc[ean_col_idx]).strip() if pd.notna(row.iloc[ean_col_idx]) else ""
         if not ean_raw:
             continue
-        excel_row = idx + 2  # pandas 0-indexed → Excel 1-indexed + header
-        buy_box = _safe_float(row.iloc[14]) or 0
+        excel_row = idx + 2
+        buy_box = _safe_float(row.iloc[buybox_col_idx]) if buybox_col_idx is not None else 0
+        buy_box = buy_box or 0
 
-        # カンマ区切りの複数EANに対応
         for ean in ean_raw.split(","):
             ean = ean.strip().replace(" ", "")
             if not ean or not ean.isdigit() or len(ean) < 8:
