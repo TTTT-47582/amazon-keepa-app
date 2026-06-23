@@ -336,11 +336,16 @@ def main():
             _run_api_generation(df, api_key, max_items, live_rate)
         else:
             keepa_idx = st.session_state.get("keepa_sheet_idx")
-            if keepa_idx == 0 and not st.session_state.get("uploaded_keepa"):
+            keepa_file = st.session_state.get("uploaded_keepa")
+            if keepa_idx == "separate" and keepa_file:
+                # 別ファイル2つ → Keepaファイルから直接値出力
+                _run_keepa_only_generation(keepa_file, df, live_rate)
+            elif keepa_idx == 0:
                 # Keepaエクスポート1ファイルのみ → 直接値出力
                 _run_keepa_only_generation(uploaded, df, live_rate)
-            else:
-                _run_generation(uploaded, st.session_state.get("uploaded_keepa"))
+            elif keepa_idx == 1:
+                # 同一ファイルにSheet2あり → Sheet2参照
+                _run_generation(uploaded, None)
 
     if st.session_state.get("generated"):
         output_path = st.session_state.get("output_path")
