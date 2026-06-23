@@ -220,48 +220,78 @@ def main():
                     padding:20px 24px; margin-bottom:16px;">
             <h4 style="color:#0F1111; margin:0 0 4px 0;">Excelファイルをアップロード</h4>
             <p style="color:#565959; font-size:13px; margin:0;">
-                Keepaエクスポート1ファイルでもOK / 卸データ＋Keepaの2ファイルでもOK
+                Keepaエクスポートは複数ファイルOK（10分割でもまとめて処理）
             </p>
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("**① メインExcel**（Keepaエクスポート or 卸データ）")
-        uploaded = st.file_uploader("メインExcel", type=["xlsx"], key="jan_file", label_visibility="collapsed")
-        st.markdown("**② 追加ファイル**（卸データが別にある場合のみ・なければ空でOK）")
-        uploaded_keepa = st.file_uploader("追加ファイル", type=["xlsx"], key="keepa_file", label_visibility="collapsed")
+        st.markdown("**① 卸データExcel**")
+        uploaded = st.file_uploader("卸データExcel", type=["xlsx"], key="jan_file", label_visibility="collapsed")
+        st.markdown("**② Keepaエクスポート**（複数ファイル可）")
+        uploaded_keepa_files = st.file_uploader(
+            "Keepaエクスポート", type=["xlsx"], key="keepa_files",
+            label_visibility="collapsed", accept_multiple_files=True,
+        )
 
-    if uploaded is None:
+    # 後方互換: uploaded_keepa_files が未定義の場合（APIモード）
+    if not use_api:
+        uploaded_keepa = uploaded_keepa_files if uploaded_keepa_files else None
+    else:
+        uploaded_keepa = None
+
+    if uploaded is None and not uploaded_keepa:
         return
+    if uploaded is None:
+        # Keepaファイルだけの場合、最初のファイルをメインとして扱う
+        uploaded = uploaded_keepa[0] if isinstance(uploaded_keepa, list) and uploaded_keepa else None
+        if uploaded is None:
+            return
 
     # Excel読み込み
-    cache_key = f"{uploaded.name}_{uploaded_keepa.name if uploaded_keepa else 'none'}"
+    keepa_names = ""
+    if isinstance(uploaded_keepa, list):
+        keepa_names = "_".join(f.name for f in uploaded_keepa)
+    elif uploaded_keepa:
+        keepa_names = uploaded_keepa.name
+    cache_key = f"{uploaded.name}_{keepa_names or 'none'}"
+
     if "uploaded_df" not in st.session_state or st.session_state.get("uploaded_cache_key") != cache_key:
         with st.spinner("Excel を読み込み中..."):
             try:
                 df = read_wholesaler_excel(uploaded)
 
                 ean_to_row = {}
+                keepa_sheet_idx = None
                 if not use_api:
-                    uploaded.seek(0)
-                    import openpyxl as _xl
-                    _wb = _xl.load_workbook(uploaded, read_only=True)
-                    sheet_count = len(_wb.sheetnames)
-                    _wb.close()
+                    keepa_file_list = []
+                    if isinstance(uploaded_keepa, list) and uploaded_keepa:
+                        keepa_file_list = uploaded_keepa
+                    elif uploaded_keepa:
+                        keepa_file_list = [uploaded_keepa]
 
-                    keepa_sheet_idx = None
-                    if uploaded_keepa:
-                        uploaded_keepa.seek(0)
-                        ean_to_row = build_ean_to_sheet2_row(uploaded_keepa, sheet_name=0)
+                    if keepa_file_list:
+                        # 複数Keepaファイルを結合
+                        for kf in keepa_file_list:
+                            kf.seek(0)
+                            partial = build_ean_to_sheet2_row(kf, sheet_name=0)
+                            ean_to_row.update(partial)
                         keepa_sheet_idx = "separate"
-                    elif sheet_count >= 2:
-                        uploaded.seek(0)
-                        ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=1)
-                        keepa_sheet_idx = 1
+                        st.caption(f"📁 Keepaファイル {len(keepa_file_list)} 個を結合")
                     else:
-                        # 1シートのみ → Keepaエクスポートとして読む
                         uploaded.seek(0)
-                        ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=0)
-                        keepa_sheet_idx = 0
+                        import openpyxl as _xl
+                        _wb = _xl.load_workbook(uploaded, read_only=True)
+                        sheet_count = len(_wb.sheetnames)
+                        _wb.close()
+
+                        if sheet_count >= 2:
+                            uploaded.seek(0)
+                            ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=1)
+                            keepa_sheet_idx = 1
+                        else:
+                            uploaded.seek(0)
+                            ean_to_row = build_ean_to_sheet2_row(uploaded, sheet_name=0)
+                            keepa_sheet_idx = 0
 
                     # JANコードが読めなかった場合、EANをJANとして使う
                     if df.empty and ean_to_row:
@@ -336,15 +366,11 @@ def main():
             _run_api_generation(df, api_key, max_items, live_rate)
         else:
             keepa_idx = st.session_state.get("keepa_sheet_idx")
-            keepa_file = st.session_state.get("uploaded_keepa")
-            if keepa_idx == "separate" and keepa_file:
-                # 別ファイル2つ → Keepaファイルから直接値出力
-                _run_keepa_only_generation(keepa_file, df, live_rate)
+            if keepa_idx == "separate":
+                _run_keepa_multi_generation(uploaded_keepa, df, live_rate)
             elif keepa_idx == 0:
-                # Keepaエクスポート1ファイルのみ → 直接値出力
-                _run_keepa_only_generation(uploaded, df, live_rate)
+                _run_keepa_multi_generation([uploaded], df, live_rate)
             elif keepa_idx == 1:
-                # 同一ファイルにSheet2あり → Sheet2参照
                 _run_generation(uploaded, None)
 
     if st.session_state.get("generated"):
@@ -353,15 +379,27 @@ def main():
         _show_result(output_path, result)
 
 
-def _run_keepa_only_generation(uploaded_file, df, exchange_rate: float):
-    """Keepaエクスポート1ファイルのみ → 直接値でSheet3を生成"""
-    with st.spinner("Keepaデータを読み込み中..."):
-        uploaded_file.seek(0)
-        keepa_results = read_keepa_export_as_results(uploaded_file, sheet_name=0)
+def _run_keepa_multi_generation(keepa_files, df, exchange_rate: float):
+    """複数のKeepaエクスポートファイルを結合してSheet3を生成"""
+    if isinstance(keepa_files, list):
+        file_list = keepa_files
+    else:
+        file_list = [keepa_files]
+
+    keepa_results = {}
+    with st.spinner(f"Keepaデータを読み込み中... ({len(file_list)}ファイル)"):
+        for i, kf in enumerate(file_list):
+            kf.seek(0)
+            partial = read_keepa_export_as_results(kf, sheet_name=0)
+            keepa_results.update(partial)
+            if len(file_list) > 1:
+                st.caption(f"  ファイル {i+1}/{len(file_list)}: {len(partial):,}件読み込み")
 
     if not keepa_results:
         st.error("Keepaデータからマッチする商品が見つかりませんでした。")
         return
+
+    st.info(f"📊 Keepa合計: **{len(keepa_results):,}件** のEANを読み込み")
 
     desktop = Path.home() / "Desktop"
     if desktop.exists():
