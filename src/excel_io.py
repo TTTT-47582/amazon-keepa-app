@@ -436,7 +436,7 @@ def generate_sheet3_from_api(
 
     for jan in unique_jans:
         kp = keepa_results.get(jan)
-        if not kp or not kp.get("found"):
+        if not kp:
             continue
 
         ws_data = jan_to_ws.get(jan, {})
