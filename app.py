@@ -37,10 +37,8 @@ st.markdown("""
     header [data-testid="stToolbar"] {
         display: none !important;
     }
-    /* サイドバー開閉ボタンを見やすく */
-    button[data-testid="stSidebarCollapseButton"],
-    button[data-testid="stSidebarExpandButton"],
-    [data-testid="collapsedControl"] button {
+    /* サイドバー開閉ボタン */
+    button[data-testid="stSidebarCollapseButton"] {
         background-color: #FF9900 !important;
         color: #FFFFFF !important;
         border-radius: 50% !important;
@@ -48,12 +46,29 @@ st.markdown("""
         height: 36px !important;
         border: 2px solid #E88B00 !important;
     }
-    button[data-testid="stSidebarCollapseButton"] svg,
-    button[data-testid="stSidebarExpandButton"] svg,
+    button[data-testid="stSidebarCollapseButton"] svg {
+        fill: #FFFFFF !important;
+        color: #FFFFFF !important;
+    }
+    /* サイドバー展開ボタン（閉じている時） */
+    [data-testid="collapsedControl"] {
+        position: fixed !important;
+        top: 10px !important;
+        left: 10px !important;
+        z-index: 999999 !important;
+    }
+    [data-testid="collapsedControl"] button {
+        background-color: #FF9900 !important;
+        color: #FFFFFF !important;
+        border-radius: 8px !important;
+        width: 44px !important;
+        height: 44px !important;
+        border: 2px solid #E88B00 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+    }
     [data-testid="collapsedControl"] button svg {
         fill: #FFFFFF !important;
         color: #FFFFFF !important;
-        stroke: #FFFFFF !important;
     }
     /* サイドバー */
     section[data-testid="stSidebar"] {
