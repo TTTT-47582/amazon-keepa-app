@@ -99,8 +99,10 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             col_idx["referral"] = i
         if "重さ" in c and "パッケージ" in c and "weight" not in col_idx:
             col_idx["weight"] = i
-        if "90日間の減少" in c and "drops" not in col_idx:
-            col_idx["drops"] = i
+        if "30日間の減少" in c and "drops30" not in col_idx:
+            col_idx["drops30"] = i
+        if "90日間の減少" in c and "drops90" not in col_idx:
+            col_idx["drops90"] = i
         if "新品アイテム数 FBA" in c and "現在" in c and "fba_count" not in col_idx:
             col_idx["fba_count"] = i
         if "新品アイテム数 FBM" in c and "現在" in c and "fbm_count" not in col_idx:
@@ -165,7 +167,7 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             "buy_box_seller": str(get(row, "bb_seller") or "").strip(),
             "fba_seller_count": si(get(row, "fba_count")) or 0,
             "fbm_seller_count": si(get(row, "fbm_count")) or 0,
-            "sales_rank_drops_30": si(get(row, "drops")),
+            "sales_rank_drops_30": si(get(row, "drops30")) or si(get(row, "drops90")),
             "package_weight_g": si(get(row, "weight")),
             "total_amazon_fee_usd": total_fee,
             "amazon_price_usd": amazon_price,
