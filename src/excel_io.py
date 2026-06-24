@@ -93,6 +93,8 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             col_idx["buybox"] = i
         if "Buy Box" in c and "セラー" in c and "bb_seller" not in col_idx:
             col_idx["bb_seller"] = i
+        if "FBA手数料" == c.strip() and "total_fee_col" not in col_idx:
+            col_idx["total_fee_col"] = i
         if "FBA Pick" in c and "fba_fee" not in col_idx:
             col_idx["fba_fee"] = i
         if "紹介料" in c and "現在" not in c and "referral" not in col_idx:
@@ -103,6 +105,8 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             col_idx["drops30"] = i
         if "90日間の減少" in c and "drops90" not in col_idx:
             col_idx["drops90"] = i
+        if "合計オファー数" in c and "total_offers" not in col_idx:
+            col_idx["total_offers"] = i
         if "新品アイテム数 FBA" in c and "現在" in c and "fba_count" not in col_idx:
             col_idx["fba_count"] = i
         if "新品アイテム数 FBM" in c and "現在" in c and "fbm_count" not in col_idx:
@@ -151,9 +155,12 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             continue
 
         buy_box = sf(get(row, "buybox"))
-        fba_fee = sf(get(row, "fba_fee")) or 0
-        referral = sf(get(row, "referral")) or 0
-        total_fee = (fba_fee + referral) if (fba_fee + referral) > 0 else None
+        # Amazon手数料: FBA手数料列（合算値）を優先、なければFBA Pick&Pack+紹介料
+        total_fee = sf(get(row, "total_fee_col"))
+        if total_fee is None:
+            fba_fee = sf(get(row, "fba_fee")) or 0
+            referral = sf(get(row, "referral")) or 0
+            total_fee = (fba_fee + referral) if (fba_fee + referral) > 0 else None
 
         amazon_price = sf(get(row, "amazon_price"))
         amazon_bb_pct = sf(get(row, "amazon_bb_pct"))
@@ -165,7 +172,7 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             "title": str(get(row, "title") or "").strip(),
             "buy_box_price_usd": buy_box,
             "buy_box_seller": str(get(row, "bb_seller") or "").strip(),
-            "fba_seller_count": si(get(row, "fba_count")) or 0,
+            "fba_seller_count": si(get(row, "total_offers")) or si(get(row, "fba_count")) or 0,
             "fbm_seller_count": si(get(row, "fbm_count")) or 0,
             "sales_rank_drops_30": si(get(row, "drops30")) or si(get(row, "drops90")),
             "package_weight_g": si(get(row, "weight")),
