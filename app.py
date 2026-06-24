@@ -168,7 +168,7 @@ def main():
         st.markdown(f"""
         <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:16px;">
             <div style="text-align:center; margin-bottom:12px;">
-                <img src="data:image/png;base64,{sidebar_logo_b64}" height="40" alt="amapro">
+                <a href="/" target="_self"><img src="data:image/png;base64,{sidebar_logo_b64}" height="40" alt="amapro" style="cursor:pointer;"></a>
             </div>
             <a href="/" target="_self"
                style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:14px;
