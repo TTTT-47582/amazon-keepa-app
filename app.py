@@ -375,6 +375,11 @@ def main():
         result = st.session_state.get("gen_result", {})
         _show_result(output_path, result)
 
+        # スクリーニング機能
+        keepa_data = st.session_state.get("keepa_results_data")
+        if keepa_data:
+            _show_screening(keepa_data, df, live_rate)
+
 
 def _run_keepa_multi_generation(keepa_files, df, exchange_rate: float):
     """複数のKeepaエクスポートファイルを結合してSheet3を生成"""
@@ -415,6 +420,7 @@ def _run_keepa_multi_generation(keepa_files, df, exchange_rate: float):
     st.session_state["generated"] = True
     st.session_state["output_path"] = str(output_path)
     st.session_state["gen_result"] = result
+    st.session_state["keepa_results_data"] = keepa_results
 
     st.success(
         f"🎉 完了！ **{found:,} 件**のUS Amazon商品データを出力 "
@@ -560,6 +566,165 @@ def _show_result(output_path: str, result: dict):
             )
     except Exception:
         pass
+
+
+def _show_screening(keepa_data: dict, df, exchange_rate: float):
+    """スクリーニング機能: スライダーで条件を指定して絞り込み"""
+    import pandas as pd
+
+    st.divider()
+    st.markdown("""
+    <h2 style="color:#131921;">🔍 スクリーニング</h2>
+    <p style="color:#565959;">条件を指定して商品を絞り込み、スクリーニング済みExcelをダウンロードできます</p>
+    """, unsafe_allow_html=True)
+
+    jan_to_ws = {}
+    for _, row in df.iterrows():
+        if row["jan_code"] not in jan_to_ws:
+            jan_to_ws[row["jan_code"]] = row.to_dict()
+
+    AH, AI = exchange_rate, 3
+    items = []
+    for jan, kp in keepa_data.items():
+        if not kp:
+            continue
+        ws = jan_to_ws.get(jan, {})
+        N = ws.get("wholesale_price", 0)
+        T = kp.get("buy_box_price_usd")
+        V = kp.get("total_amazon_fee_usd")
+        X = kp.get("package_weight_g") or 0
+        O = kp.get("sales_rank_drops_30")
+        P = kp.get("fba_seller_count") or 0
+        W = N * 1.1
+        U = (W + X * AI) / AH if AH > 0 else 0
+        Y = (T - U - V) if T and V else None
+        AA = (Y / T * 100) if Y is not None and T and T > 0 else None
+
+        items.append({
+            "JAN": jan,
+            "ASIN": kp.get("asin", ""),
+            "タイトル": kp.get("title", "")[:50],
+            "商品名": ws.get("product_name_jp", "")[:30],
+            "売価USD": T,
+            "仕入値": round(W) if W else 0,
+            "損益USD": round(Y, 2) if Y else None,
+            "利益率%": round(AA, 1) if AA else None,
+            "30日drop": O,
+            "FBAセラー": P,
+            "FBMセラー": kp.get("fbm_seller_count") or 0,
+            "重量g": X,
+            "Amazon販売": kp.get("is_amazon_selling", False),
+            "Amazon価格": kp.get("amazon_price_usd"),
+            "AmazonBB%": kp.get("amazon_bb_pct_90"),
+        })
+
+    all_df = pd.DataFrame(items)
+    if all_df.empty:
+        return
+
+    # ── フィルタUI ──
+    st.markdown("""
+    <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
+                padding:16px 20px; margin-bottom:16px;">
+        <h4 style="color:#FF9900; margin:0 0 8px 0;">フィルタ条件</h4>
+    </div>
+    """, unsafe_allow_html=True)
+
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        drops_min = st.slider(
+            "30日ランク下落（最低回数）",
+            min_value=0, max_value=200, value=19, step=1,
+            help="数値が大きいほど売れている商品",
+        )
+        margin_min = st.slider(
+            "利益率（最低 %）",
+            min_value=-50, max_value=100, value=10, step=5,
+            help="損益 ÷ 売価 × 100",
+        )
+        price_min = st.slider(
+            "売価USD（最低）",
+            min_value=0.0, max_value=200.0, value=0.0, step=1.0,
+        )
+    with fc2:
+        fba_seller_max = st.slider(
+            "FBAセラー数（最大）",
+            min_value=0, max_value=50, value=0, step=1,
+            help="0 = 制限なし。少ないほど競合が少ない",
+        )
+        weight_max = st.slider(
+            "重量（最大 g）",
+            min_value=0, max_value=5000, value=0, step=100,
+            help="0 = 制限なし",
+        )
+        exclude_amazon = st.checkbox(
+            "🚫 Amazon本体が販売している商品を除外",
+            value=True,
+            help="Amazon.comが直接販売・Buy Boxを持っている商品を除外",
+        )
+
+    # ── フィルタ適用 ──
+    filtered = all_df.copy()
+    filtered = filtered[filtered["売価USD"].notna() & (filtered["売価USD"] > 0)]
+
+    if drops_min > 0:
+        filtered = filtered[filtered["30日drop"].notna() & (filtered["30日drop"] >= drops_min)]
+    if margin_min != -50:
+        filtered = filtered[filtered["利益率%"].notna() & (filtered["利益率%"] >= margin_min)]
+    if price_min > 0:
+        filtered = filtered[filtered["売価USD"] >= price_min]
+    if fba_seller_max > 0:
+        filtered = filtered[filtered["FBAセラー"] <= fba_seller_max]
+    if weight_max > 0:
+        filtered = filtered[filtered["重量g"].notna() & (filtered["重量g"] <= weight_max)]
+    if exclude_amazon:
+        filtered = filtered[~filtered["Amazon販売"]]
+
+    # ── 結果表示 ──
+    st.divider()
+    profitable = filtered[filtered["損益USD"].notna() & (filtered["損益USD"] > 0)]
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("全商品", f"{len(all_df[all_df['売価USD'].notna()]):,}")
+    m2.metric("スクリーニング後", f"{len(filtered):,}")
+    m3.metric("利益あり", f"{len(profitable):,}")
+    if not profitable.empty:
+        m4.metric("平均利益率", f"{profitable['利益率%'].mean():.1f}%")
+    else:
+        m4.metric("平均利益率", "-")
+
+    sort_col = st.selectbox(
+        "並び替え",
+        ["利益率%（高い順）", "損益USD（高い順）", "30日drop（多い順）", "FBAセラー（少ない順）", "売価USD（高い順）"],
+    )
+    sort_map = {
+        "利益率%（高い順）": ("利益率%", False),
+        "損益USD（高い順）": ("損益USD", False),
+        "30日drop（多い順）": ("30日drop", False),
+        "FBAセラー（少ない順）": ("FBAセラー", True),
+        "売価USD（高い順）": ("売価USD", False),
+    }
+    sort_key, ascending = sort_map[sort_col]
+    filtered = filtered.sort_values(sort_key, ascending=ascending, na_position="last")
+
+    display_cols = ["ASIN", "タイトル", "売価USD", "仕入値", "損益USD", "利益率%",
+                    "FBAセラー", "30日drop", "重量g", "Amazon販売"]
+    st.dataframe(filtered[display_cols], use_container_width=True, height=500)
+
+    # スクリーニング済みExcelダウンロード
+    if not filtered.empty:
+        from src.excel_io import generate_sheet3_from_api
+        filtered_keepa = {row["JAN"]: keepa_data[row["JAN"]] for _, row in filtered.iterrows() if row["JAN"] in keepa_data}
+        buf_path = Path(tempfile.gettempdir()) / "スクリーニング結果.xlsx"
+        generate_sheet3_from_api(df, filtered_keepa, buf_path, exchange_rate)
+        with open(buf_path, "rb") as f:
+            st.download_button(
+                f"📥 スクリーニング済み Excel（{len(filtered):,}件）",
+                data=f.read(),
+                file_name="スクリーニング結果.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
 
 if __name__ == "__main__":

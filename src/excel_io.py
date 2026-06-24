@@ -107,6 +107,10 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             col_idx["fbm_count"] = i
         if "Imported by Code" in c and "ean" not in col_idx:
             col_idx["ean"] = i
+        if "Amazon" in c and "現在価格" in c and "Buy Box" not in c and "amazon_price" not in col_idx:
+            col_idx["amazon_price"] = i
+        if "% Amazon 90" in c and "amazon_bb_pct" not in col_idx:
+            col_idx["amazon_bb_pct"] = i
 
     # EAN列フォールバック
     if "ean" not in col_idx:
@@ -149,6 +153,10 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
         referral = sf(get(row, "referral")) or 0
         total_fee = (fba_fee + referral) if (fba_fee + referral) > 0 else None
 
+        amazon_price = sf(get(row, "amazon_price"))
+        amazon_bb_pct = sf(get(row, "amazon_bb_pct"))
+        is_amazon_selling = (amazon_price is not None) or (amazon_bb_pct is not None and amazon_bb_pct > 0)
+
         product = {
             "found": buy_box is not None and buy_box > 0,
             "asin": str(get(row, "asin") or "").strip(),
@@ -160,6 +168,9 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             "sales_rank_drops_30": si(get(row, "drops")),
             "package_weight_g": si(get(row, "weight")),
             "total_amazon_fee_usd": total_fee,
+            "amazon_price_usd": amazon_price,
+            "amazon_bb_pct_90": amazon_bb_pct,
+            "is_amazon_selling": is_amazon_selling,
         }
 
         for ean in ean_raw.split(","):
