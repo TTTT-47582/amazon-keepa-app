@@ -37,40 +37,9 @@ st.markdown("""
     header [data-testid="stToolbar"] {
         display: none !important;
     }
-    /* サイドバー開閉ボタン */
+    /* サイドバーを常に表示（閉じるボタンを非表示） */
     button[data-testid="stSidebarCollapseButton"] {
-        background-color: #FF9900 !important;
-        color: #FFFFFF !important;
-        border-radius: 50% !important;
-        width: 36px !important;
-        height: 36px !important;
-        border: 2px solid #E88B00 !important;
-    }
-    button[data-testid="stSidebarCollapseButton"] svg {
-        fill: #FFFFFF !important;
-        color: #FFFFFF !important;
-    }
-    /* サイドバー展開ボタン（閉じている時）*/
-    [data-testid="collapsedControl"] {
-        position: fixed !important;
-        top: 48px !important;
-        left: 0 !important;
-        z-index: 999999 !important;
-    }
-    [data-testid="collapsedControl"] button {
-        background-color: #FF9900 !important;
-        color: #FFFFFF !important;
-        border-radius: 0 8px 8px 0 !important;
-        width: 40px !important;
-        height: 50px !important;
-        border: none !important;
-        box-shadow: 2px 2px 8px rgba(0,0,0,0.3) !important;
-    }
-    [data-testid="collapsedControl"] button svg {
-        fill: #FFFFFF !important;
-        color: #FFFFFF !important;
-        width: 20px !important;
-        height: 20px !important;
+        display: none !important;
     }
     /* サイドバー */
     section[data-testid="stSidebar"] {
