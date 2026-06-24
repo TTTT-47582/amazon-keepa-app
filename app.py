@@ -334,6 +334,15 @@ def main():
             f"💰 推定トークン: **{tokens:,}**　｜　⏱ 約{max(tokens // 50, 1)}分"
         )
 
+    # 為替レート指定（Excel書き出し用）
+    export_rate = st.number_input(
+        "為替レート (1 USD = X 円)",
+        min_value=100.0, max_value=250.0, value=155.0, step=1.0,
+        key="export_rate",
+        help="Sheet3の計算に使用する為替レート",
+    )
+    live_rate = export_rate
+
     # 処理実行
     btn_label = "🚀 Sheet3 を自動生成" if not use_api else "🚀 Keepa API で取得＆生成"
     start_btn = st.button(btn_label, type="primary", use_container_width=True)
