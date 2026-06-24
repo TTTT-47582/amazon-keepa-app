@@ -27,7 +27,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:16px;">
         <div style="text-align:center; margin-bottom:12px;">
-            <img src="data:image/png;base64,{sb_logo}" height="32" alt="amapro">
+            <img src="data:image/png;base64,{sb_logo}" height="40" alt="amapro">
         </div>
         <a href="/" target="_self"
            style="color:#DDDDDD; text-decoration:none; font-size:13px;
@@ -46,7 +46,7 @@ with open("static/logo-lockup.png", "rb") as f:
     main_logo = base64.b64encode(f.read()).decode()
 st.markdown(
     f'<div style="text-align:center; padding:10px 0 20px 0;">'
-    f'<img src="data:image/png;base64,{main_logo}" height="48" alt="amapro">'
+    f'<img src="data:image/png;base64,{main_logo}" height="70" alt="amapro">'
     f'<span style="color:#565959; font-size:16px; margin-left:12px;">使い方ガイド</span>'
     f'</div>',
     unsafe_allow_html=True,

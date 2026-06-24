@@ -37,6 +37,24 @@ st.markdown("""
     header [data-testid="stToolbar"] {
         display: none !important;
     }
+    /* サイドバー開閉ボタンを見やすく */
+    button[data-testid="stSidebarCollapseButton"],
+    button[data-testid="stSidebarExpandButton"],
+    [data-testid="collapsedControl"] button {
+        background-color: #FF9900 !important;
+        color: #FFFFFF !important;
+        border-radius: 50% !important;
+        width: 36px !important;
+        height: 36px !important;
+        border: 2px solid #E88B00 !important;
+    }
+    button[data-testid="stSidebarCollapseButton"] svg,
+    button[data-testid="stSidebarExpandButton"] svg,
+    [data-testid="collapsedControl"] button svg {
+        fill: #FFFFFF !important;
+        color: #FFFFFF !important;
+        stroke: #FFFFFF !important;
+    }
     /* サイドバー */
     section[data-testid="stSidebar"] {
         background-color: #232F3E !important;
@@ -140,7 +158,7 @@ def main():
         logo_b64 = base64.b64encode(f.read()).decode()
     st.markdown(
         f'<div style="text-align:center; padding:10px 0 40px 0;">'
-        f'<img src="data:image/png;base64,{logo_b64}" height="60" alt="amapro">'
+        f'<img src="data:image/png;base64,{logo_b64}" height="90" alt="amapro">'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -153,7 +171,7 @@ def main():
         st.markdown(f"""
         <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:16px;">
             <div style="text-align:center; margin-bottom:12px;">
-                <img src="data:image/png;base64,{sidebar_logo_b64}" height="32" alt="amapro">
+                <img src="data:image/png;base64,{sidebar_logo_b64}" height="40" alt="amapro">
             </div>
             <a href="/" target="_self"
                style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:14px;
