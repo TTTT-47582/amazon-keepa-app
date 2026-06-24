@@ -193,20 +193,7 @@ def main():
             api_key = st.text_input("Keepa API キー", value=env_key, type="password")
             max_items = st.number_input("処理上限件数", min_value=10, max_value=5000, value=100, step=50)
 
-        st.divider()
-
-        live_rate, rate_date = _fetch_exchange_rate()
-        auto_rate = st.checkbox("為替レートを自動取得", value=True)
-        if auto_rate:
-            exchange_rate = live_rate
-            if rate_date:
-                st.caption(f"💱 1 USD = ¥{live_rate:.2f}（{rate_date}）")
-        else:
-            exchange_rate = st.number_input(
-                "為替レート (1 USD = X 円)",
-                min_value=100.0, max_value=250.0, value=150.0, step=1.0,
-            )
-        live_rate = exchange_rate
+        live_rate, _ = _fetch_exchange_rate()
 
     # ── メインエリア ──
     if use_api:
@@ -591,6 +578,19 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
     for _, row in df.iterrows():
         if row["jan_code"] not in jan_to_ws:
             jan_to_ws[row["jan_code"]] = row.to_dict()
+
+    # 為替レート選択
+    live_rate, rate_date = _fetch_exchange_rate()
+    auto_rate = st.checkbox("為替レートを自動取得", value=True, key="screen_auto_rate")
+    if auto_rate:
+        exchange_rate = live_rate
+        if rate_date:
+            st.caption(f"💱 1 USD = ¥{live_rate:.2f}（{rate_date}）")
+    else:
+        exchange_rate = st.number_input(
+            "為替レート (1 USD = X 円)",
+            min_value=100.0, max_value=250.0, value=150.0, step=1.0, key="screen_rate",
+        )
 
     AH, AI = exchange_rate, 3
     items = []
