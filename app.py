@@ -24,6 +24,7 @@ st.set_page_config(
     page_title="Amapro - 仕入れリサーチ",
     page_icon="static/favicon-32.png",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 # Amazon風カラーテーマ
@@ -37,8 +38,18 @@ st.markdown("""
     header [data-testid="stToolbar"] {
         display: none !important;
     }
-    /* サイドバーを常に表示（閉じるボタンを非表示） */
+    /* サイドバーを常に表示 */
+    section[data-testid="stSidebar"] {
+        display: block !important;
+        width: 300px !important;
+        min-width: 300px !important;
+        transform: none !important;
+        position: relative !important;
+    }
     button[data-testid="stSidebarCollapseButton"] {
+        display: none !important;
+    }
+    [data-testid="collapsedControl"] {
         display: none !important;
     }
     /* サイドバー */
