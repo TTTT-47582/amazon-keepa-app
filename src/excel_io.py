@@ -452,6 +452,10 @@ def generate_sheet3_from_api(
         if not kp:
             continue
 
+        # 30日ランク下落がない商品はスキップ
+        if not kp.get("sales_rank_drops_30"):
+            continue
+
         ws_data = jan_to_ws.get(jan, {})
         matched += 1
         n = out_row
