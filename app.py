@@ -170,11 +170,6 @@ def main():
             <div style="text-align:center; margin-bottom:12px;">
                 <a href="/" target="_self"><img src="data:image/png;base64,{sidebar_logo_b64}" height="40" alt="amapro" style="cursor:pointer;"></a>
             </div>
-            <a href="/" target="_self"
-               style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:14px;
-                      display:block; padding:6px 0; border-left:3px solid #FF9900; padding-left:12px;">
-                🏠 HOME
-            </a>
             <a href="/使い方" target="_self"
                style="color:#DDDDDD; text-decoration:none; font-size:13px;
                       display:block; padding:6px 0 6px 15px;">
