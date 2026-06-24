@@ -22,7 +22,7 @@ from src.keepa_client import query_jan_codes_us, estimate_tokens, _get_api, _res
 
 st.set_page_config(
     page_title="Amapro - 仕入れリサーチ",
-    page_icon="🔶",
+    page_icon="static/favicon-32.png",
     layout="wide",
 )
 
@@ -134,47 +134,34 @@ def _fetch_exchange_rate() -> tuple[float, str]:
 
 
 def main():
-    st.markdown("""
-    <div style="text-align:center; padding: 10px 0 40px 0;">
-        <div style="display:inline-block; position:relative;">
-            <span style="font-size:48px; font-weight:bold; color:#131921; letter-spacing:-1px;
-                         font-family:'Amazon Ember','Helvetica Neue',Arial,sans-serif;">
-                ama<span style="color:#FF9900;">pro</span>
-            </span>
-            <svg width="140" height="28" viewBox="0 0 140 28"
-                 style="display:block; margin:-4px auto 0 auto;">
-                <!-- コインが弾む軌跡 -->
-                <path d="M10 22 Q25 8 40 18 Q55 4 70 16 Q85 0 100 14 Q110 6 125 10"
-                      stroke="#FF9900" stroke-width="2" fill="none"
-                      stroke-linecap="round" stroke-dasharray="4 2"/>
-                <!-- コイン（小→大） -->
-                <circle cx="10" cy="22" r="4" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
-                <text x="10" y="24" text-anchor="middle" font-size="5" fill="#C7511F" font-weight="bold">¥</text>
-                <circle cx="40" cy="18" r="5" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
-                <text x="40" y="20" text-anchor="middle" font-size="6" fill="#C7511F" font-weight="bold">$</text>
-                <circle cx="70" cy="16" r="6" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
-                <text x="70" y="18.5" text-anchor="middle" font-size="7" fill="#C7511F" font-weight="bold">$</text>
-                <circle cx="100" cy="14" r="7" fill="#FFD814" stroke="#E88B00" stroke-width="1"/>
-                <text x="100" y="17" text-anchor="middle" font-size="8" fill="#C7511F" font-weight="bold">$</text>
-                <circle cx="128" cy="10" r="8" fill="#FFD814" stroke="#E88B00" stroke-width="1.5"/>
-                <text x="128" y="13.5" text-anchor="middle" font-size="9" fill="#C7511F" font-weight="bold">$</text>
-            </svg>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # メインロゴ（ライト背景用）
+    import base64
+    with open("static/logo-lockup.png", "rb") as f:
+        logo_b64 = base64.b64encode(f.read()).decode()
+    st.markdown(
+        f'<div style="text-align:center; padding:10px 0 40px 0;">'
+        f'<img src="data:image/png;base64,{logo_b64}" height="60" alt="amapro">'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── サイドバー ──
     with st.sidebar:
-        # Amazon風ナビバー
-        st.markdown("""
-        <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:12px 16px;">
+        # サイドバーロゴ + ナビ
+        with open("static/logo-lockup-dark.png", "rb") as f:
+            sidebar_logo_b64 = base64.b64encode(f.read()).decode()
+        st.markdown(f"""
+        <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:16px;">
+            <div style="text-align:center; margin-bottom:12px;">
+                <img src="data:image/png;base64,{sidebar_logo_b64}" height="32" alt="amapro">
+            </div>
             <a href="/" target="_self"
-               style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:15px;
+               style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:14px;
                       display:block; padding:6px 0; border-left:3px solid #FF9900; padding-left:12px;">
                 🏠 HOME
             </a>
             <a href="/使い方" target="_self"
-               style="color:#DDDDDD; text-decoration:none; font-size:14px;
+               style="color:#DDDDDD; text-decoration:none; font-size:13px;
                       display:block; padding:6px 0 6px 15px;">
                 📖 使い方ガイド
             </a>

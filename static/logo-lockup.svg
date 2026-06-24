@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="132" viewBox="0 0 520 132" font-family="Sora, sans-serif">
+  <g transform="translate(0,6) scale(1.2)">
+  <rect x="2" y="2" width="96" height="96" rx="23" fill="#232F3E"></rect>
+  <circle cx="38.2" cy="38.2" r="23.6" fill="none" stroke="#FF9900" stroke-width="6.5"></circle>
+  <line x1="57.3" y1="57.3" x2="75" y2="75" stroke="#FF9900" stroke-width="8" stroke-linecap="round"></line>
+  <polyline points="27,44 34,38 40,41 50,31" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"></polyline>
+  <polyline points="45,31 50,31 50,36" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"></polyline></g>
+  <text x="170" y="66" dominant-baseline="central" font-size="78" font-weight="800" letter-spacing="-3" fill="#232F3E">ama<tspan fill="#FF9900">pro</tspan></text>
+</svg>

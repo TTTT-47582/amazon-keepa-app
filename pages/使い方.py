@@ -3,7 +3,7 @@
 import os
 import streamlit as st
 
-st.set_page_config(page_title="Amapro - 使い方", page_icon="🔶", layout="wide")
+st.set_page_config(page_title="Amapro - 使い方", page_icon="static/favicon-32.png", layout="wide")
 
 # Amazon風テーマ
 st.markdown("""
@@ -19,31 +19,38 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+import base64
+
 with st.sidebar:
-    st.markdown("""
-    <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:12px 16px;">
+    with open("static/logo-lockup-dark.png", "rb") as f:
+        sb_logo = base64.b64encode(f.read()).decode()
+    st.markdown(f"""
+    <div style="background:#37475A; margin:-1rem -1rem 1rem -1rem; padding:16px;">
+        <div style="text-align:center; margin-bottom:12px;">
+            <img src="data:image/png;base64,{sb_logo}" height="32" alt="amapro">
+        </div>
         <a href="/" target="_self"
-           style="color:#DDDDDD; text-decoration:none; font-size:14px;
+           style="color:#DDDDDD; text-decoration:none; font-size:13px;
                   display:block; padding:6px 0 6px 15px;">
             🏠 HOME
         </a>
         <a href="/使い方" target="_self"
-           style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:15px;
+           style="color:#FFFFFF; text-decoration:none; font-weight:bold; font-size:14px;
                   display:block; padding:6px 0; border-left:3px solid #FF9900; padding-left:12px;">
             📖 使い方ガイド
         </a>
     </div>
     """, unsafe_allow_html=True)
 
-st.markdown("""
-<div style="text-align:center; padding: 10px 0 20px 0;">
-    <span style="font-size:32px; font-weight:bold; color:#131921;
-                 font-family:'Amazon Ember','Helvetica Neue',Arial,sans-serif;">
-        ama<span style="color:#FF9900;">pro</span>
-    </span>
-    <span style="color:#565959; font-size:16px; margin-left:12px;">使い方ガイド</span>
-</div>
-""", unsafe_allow_html=True)
+with open("static/logo-lockup.png", "rb") as f:
+    main_logo = base64.b64encode(f.read()).decode()
+st.markdown(
+    f'<div style="text-align:center; padding:10px 0 20px 0;">'
+    f'<img src="data:image/png;base64,{main_logo}" height="48" alt="amapro">'
+    f'<span style="color:#565959; font-size:16px; margin-left:12px;">使い方ガイド</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
 st.header("このツールでできること")
 st.markdown("""
