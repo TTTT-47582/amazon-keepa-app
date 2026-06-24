@@ -50,25 +50,27 @@ st.markdown("""
         fill: #FFFFFF !important;
         color: #FFFFFF !important;
     }
-    /* サイドバー展開ボタン（閉じている時） */
+    /* サイドバー展開ボタン（閉じている時）*/
     [data-testid="collapsedControl"] {
         position: fixed !important;
-        top: 10px !important;
-        left: 10px !important;
+        top: 48px !important;
+        left: 0 !important;
         z-index: 999999 !important;
     }
     [data-testid="collapsedControl"] button {
         background-color: #FF9900 !important;
         color: #FFFFFF !important;
-        border-radius: 8px !important;
-        width: 44px !important;
-        height: 44px !important;
-        border: 2px solid #E88B00 !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+        border-radius: 0 8px 8px 0 !important;
+        width: 40px !important;
+        height: 50px !important;
+        border: none !important;
+        box-shadow: 2px 2px 8px rgba(0,0,0,0.3) !important;
     }
     [data-testid="collapsedControl"] button svg {
         fill: #FFFFFF !important;
         color: #FFFFFF !important;
+        width: 20px !important;
+        height: 20px !important;
     }
     /* サイドバー */
     section[data-testid="stSidebar"] {
