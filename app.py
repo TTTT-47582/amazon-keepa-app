@@ -630,38 +630,21 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
     </div>
     """, unsafe_allow_html=True)
 
-    fc1, fc2 = st.columns(2)
-    with fc1:
-        drops_min = st.slider(
-            "30日ランク下落（最低回数）",
-            min_value=0, max_value=200, value=19, step=1,
-            help="数値が大きいほど売れている商品",
-        )
-        margin_min = st.slider(
-            "利益率（最低 %）",
-            min_value=-50, max_value=100, value=10, step=5,
-            help="損益 ÷ 売価 × 100",
-        )
-        price_min = st.slider(
-            "売価USD（最低）",
-            min_value=0.0, max_value=200.0, value=0.0, step=1.0,
-        )
-    with fc2:
-        fba_seller_max = st.slider(
-            "FBAセラー数（最大）",
-            min_value=0, max_value=50, value=0, step=1,
-            help="0 = 制限なし。少ないほど競合が少ない",
-        )
-        weight_max = st.slider(
-            "重量（最大 g）",
-            min_value=0, max_value=5000, value=0, step=100,
-            help="0 = 制限なし",
-        )
-        exclude_amazon = st.checkbox(
-            "🚫 Amazon本体が販売している商品を除外",
-            value=True,
-            help="Amazon.comが直接販売・Buy Boxを持っている商品を除外",
-        )
+    drops_min = st.slider(
+        "30日ランク下落（最低回数）",
+        min_value=0, max_value=200, value=19, step=1,
+        help="数値が大きいほど売れている商品",
+    )
+    margin_min = st.slider(
+        "利益率（最低 %）",
+        min_value=-50, max_value=100, value=10, step=5,
+        help="損益 ÷ 売価 × 100",
+    )
+    exclude_amazon = st.checkbox(
+        "🚫 Amazon本体が販売している商品を除外",
+        value=True,
+        help="Amazon.comが直接販売・Buy Boxを持っている商品を除外",
+    )
 
     # ── フィルタ適用 ──
     filtered = all_df.copy()
@@ -671,12 +654,6 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
         filtered = filtered[filtered["30日drop"].notna() & (filtered["30日drop"] >= drops_min)]
     if margin_min != -50:
         filtered = filtered[filtered["利益率%"].notna() & (filtered["利益率%"] >= margin_min)]
-    if price_min > 0:
-        filtered = filtered[filtered["売価USD"] >= price_min]
-    if fba_seller_max > 0:
-        filtered = filtered[filtered["FBAセラー"] <= fba_seller_max]
-    if weight_max > 0:
-        filtered = filtered[filtered["重量g"].notna() & (filtered["重量g"] <= weight_max)]
     if exclude_amazon:
         filtered = filtered[~filtered["Amazon販売"]]
 
@@ -707,9 +684,21 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
     sort_key, ascending = sort_map[sort_col]
     filtered = filtered.sort_values(sort_key, ascending=ascending, na_position="last")
 
+    # ASINにAmazonリンクを付与
+    filtered = filtered.copy()
+    filtered["Amazon"] = filtered["ASIN"].apply(
+        lambda x: f"https://www.amazon.com/dp/{x}" if x else ""
+    )
     display_cols = ["ASIN", "タイトル", "売価USD", "仕入値", "損益USD", "利益率%",
-                    "FBAセラー", "30日drop", "重量g", "Amazon販売"]
-    st.dataframe(filtered[display_cols], use_container_width=True, height=500)
+                    "FBAセラー", "30日drop", "Amazon"]
+    st.dataframe(
+        filtered[display_cols],
+        use_container_width=True,
+        height=500,
+        column_config={
+            "Amazon": st.column_config.LinkColumn("Amazon", display_text="開く"),
+        },
+    )
 
     # スクリーニング済みExcelダウンロード
     if not filtered.empty:
