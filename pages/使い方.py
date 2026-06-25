@@ -16,6 +16,7 @@ st.markdown("""
     [data-testid="stSidebarNav"] { display: none !important; }
     h1, h2, h3 { color: #131921 !important; }
     a { color: #007185 !important; }
+    button[data-testid="stSidebarCollapseButton"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -47,133 +48,156 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.header("このツールでできること")
+# ── 全体の流れ ──
+st.header("全体の流れ")
 st.markdown("""
-卸問屋の **JANコード入りExcel** をアップロードするだけで、
-US Amazonの商品データを取得し、**利益計算付きのSheet3を自動生成**します。
-
-データの取得方法は **2つのモード** から選べます。
+```
+卸データExcel + KeepaエクスポートExcel
+        ↓ アップロード
+    Sheet3 自動生成（リサーチ結果Excel）
+        ↓
+    スクリーニング（30日drop・利益率・Amazon除外）
+        ↓
+    スクリーニング済みExcel ダウンロード ← 最終成果物
+```
 """)
 
 st.divider()
 
-st.header("2つのデータ取得モード")
-c1, c2 = st.columns(2)
-
-with c1:
-    st.markdown("""
-    <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
-                padding:16px; min-height:280px;">
-        <h4 style="color:#FF9900;">📄 Excel内Keepaデータ（Sheet2）</h4>
-        <p><strong>おすすめ・APIキー不要</strong></p>
-        <ul>
-            <li>トークン消費ゼロ</li>
-            <li>Sheet2のKeepaエクスポートデータと自動マッチング</li>
-            <li>数秒〜数十秒で完了</li>
-            <li>元Sheet3と同一の数式で出力</li>
-        </ul>
-        <p><strong>必要なExcel構成：</strong></p>
-        <ul>
-            <li>シート1: JANコード・品名・卸価格</li>
-            <li>シート2: Keepa Webからのエクスポートデータ</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c2:
-    st.markdown("""
-    <div style="background:#F7F8FA; border:1px solid #D5D9D9; border-radius:8px;
-                padding:16px; min-height:280px;">
-        <h4 style="color:#FF9900;">🌐 Keepa APIで取得</h4>
-        <p><strong>Sheet2なしでもOK</strong></p>
-        <ul>
-            <li>Keepa APIで自動取得（APIキー必要）</li>
-            <li>JANコードだけのExcelで動作</li>
-            <li>1件あたり約1トークン消費</li>
-            <li>Proプラン推奨（50トークン/分）</li>
-        </ul>
-        <p><strong>必要なExcel構成：</strong></p>
-        <ul>
-            <li>シート1: JANコード・品名・卸価格</li>
-            <li>（シート2は不要）</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.divider()
-
-st.header("使い方（3ステップ）")
+# ── ステップ1 ──
+st.header("ステップ1: Keepaでデータを準備する")
 st.markdown("""
-### ① サイドバーでモードを選択
-- **📄 Excel内Keepaデータ**: Sheet2入りExcelがある場合
-- **🌐 Keepa APIで取得**: JANコードだけのExcelの場合（APIキーを入力）
+### Keepaで商品データをエクスポート
 
-### ② Excelファイルをアップロード
-卸問屋のExcelをドラッグ＆ドロップします。
-JANコード列は自動検出されるので、列の位置が異なるExcelでもOKです。
+1. [keepa.com](https://keepa.com) にログイン
+2. 上部メニュー **「検索」** → **「製品ビューア」** をクリック
+3. **「UPC / EAN / GTINコードのリスト」** を選択
+4. 卸データExcelの**JAN列をコピー＆ペースト**（最大10,000件ずつ）
+5. **「リストを読み込む」** をクリック
+6. テーブル上部の **「列を設定」** で **「過去30日間の減少」にチェック** ← 重要！
+7. **「エクスポート」** でExcelをダウンロード
 
-### ③ 「Sheet3 を自動生成」or「Keepa API で取得＆生成」を押す
-処理完了後：
-- **ローカル**: デスクトップに自動保存＆Excelが開きます
-- **Streamlit Cloud**: 「手動ダウンロード」ボタンから取得
+**94,000件の場合：** 10回に分けてエクスポート → Amaproで全ファイルまとめてアップロード可能
 """)
 
 st.divider()
 
-st.header("出力される列と計算式")
+# ── ステップ2 ──
+st.header("ステップ2: Amaproにアップロード")
 st.markdown("""
-**データ列（Keepaから取得）：**
+### ファイルのアップロード方法
 
+| アップロード欄 | 入れるファイル | 必須？ |
+|---|---|---|
+| **① 卸データExcel** | 問屋のJANコード入りExcel | ✅ |
+| **② Keepaエクスポート** | ステップ1でダウンロードしたファイル（複数OK） | ✅ |
+
+- ②は**複数ファイルを同時にアップロード**できます（Ctrl/Cmdを押しながら選択）
+- 1つのExcelに3シート入り（卸データ+Keepa+Sheet3）の場合は①だけでOK
+""")
+
+st.divider()
+
+# ── ステップ3 ──
+st.header("ステップ3: 為替レートを設定してSheet3を生成")
+st.markdown("""
+1. **為替レート** を確認（デフォルト155円）
+2. **「🚀 Sheet3 を自動生成」** ボタンをクリック
+3. 処理完了後、リサーチ結果Excelが生成されます
+
+| 環境 | 結果の受け取り方 |
+|------|----------------|
+| ローカル | デスクトップに自動保存＆Excelが開く |
+| Streamlit Cloud | **「📥 結果Excelを手動ダウンロード」** ボタンをクリック |
+""")
+
+st.divider()
+
+# ── ステップ4（スクリーニング） ──
+st.header("ステップ4: スクリーニングで絞り込む")
+st.markdown("""
+Sheet3生成後、画面下部に **🔍 スクリーニング** セクションが表示されます。
+""")
+
+st.markdown("""
+### フィルタ条件
+
+| フィルタ | 意味 | デフォルト |
+|---------|------|-----------|
+| **30日ランク下落（最低回数）** | 数値が大きいほど売れている | 19以上 |
+| **利益率（最低%）** | 売価に対する利益の割合 | 10%以上 |
+| **🚫 Amazon本体を除外** | Amazon直販商品を除外 | ON |
+
+スライダーを動かすと**リアルタイム**で結果が変わります。
+""")
+
+st.markdown("""
+### スクリーニング済みExcelのダウンロード
+
+フィルタで絞り込んだ後、テーブルの下にある
+
+> **📥 スクリーニング済み Excel（○○件）**
+
+をクリックすると、**絞り込んだ商品だけ**のExcelがダウンロードされます。
+
+このExcelがリサーチの**最終成果物**です。
+""")
+
+st.warning("""
+**注意：** 「結果Excelを手動ダウンロード」と「スクリーニング済みExcel」は別物です。
+
+| ボタン | 内容 |
+|--------|------|
+| 📥 結果Excel | 全商品（フィルタなし） |
+| 📥 スクリーニング済みExcel | **フィルタ後の商品のみ** ← こちらが最終成果物 |
+""")
+
+st.divider()
+
+# ── 出力Excelの列説明 ──
+st.header("出力Excelの列と計算式")
+st.markdown("""
 | 列 | 項目 | 内容 |
 |----|------|------|
 | D | 商品名 | 日本語の商品名 |
 | E | タイトル | US Amazonの英語タイトル |
 | G | ASIN | US AmazonのASIN |
 | N | 卸価格 | 仕入れ単価 |
-| O | 30キーパ | 30日間のランク下落回数（≒販売回数） |
-| P | セラー数（FBA） | FBA出品者数 |
+| O | 30キーパ | 過去30日間のランク下落回数（≒販売回数） |
+| P | セラー数 | 合計オファー数 |
 | T | 売価USD | Buy Box価格（米ドル） |
-| V | Amazon手数料 | FBA手数料 + 紹介料 |
+| V | Amazon手数料 | FBA手数料（紹介料込み） |
 | X | Weight | パッケージ重量（g） |
 
-**計算列（元Sheet3と同一の数式）：**
+**計算列：**
 
 | 列 | 数式 | 内容 |
 |----|------|------|
-| W | `=K×N×1.1` | 仕入値（税込） |
-| U | `=(W+(X×3))/為替レート` | 仕入＋送料（FBA） |
+| W | `=L×N×1.1` | 仕入値（税込） |
+| U | `=(W+(X×3))÷為替レート` | 仕入＋送料（FBA） |
 | Y | `=T-U-V` | 損益（USD） |
-| Z | `=(O/(P+1))×Y` | 利益額 |
-| AA | `=Y/T` | 利益率 |
-| AB | `=Y×S` | 利益額2（初回仕入れ分） |
-| AG | `=AB×為替レート` | 利益/円 |
+| Z | `=(O÷(P+1))×Y` | 利益額 |
+| AA | `=Y÷T` | 利益率 |
+| AB〜AG | 利益額2・売上・手数料・原価・原価送料・利益/円 | |
 
-**固定値（Excel上で変更可能）：**
-
-| セル | デフォルト | 説明 |
-|------|-----------|------|
-| K列 | 1 | セット内容 |
-| S列 | 5 | 初回仕入れ数 |
-| AH2 | 150 | 為替レート（JPY/USD） |
-| AI2 | 3 | 国際送料単価（円/g） |
+**定数（AH2=為替レート, AI2=送料3円/g）はExcel上で変更すると全行再計算されます。**
 """)
 
 st.divider()
 
-st.header("注意事項")
-st.warning("""
-**APIモード利用時のトークンについて**
+# ── Keepaエクスポートの注意 ──
+st.header("Keepaエクスポートの注意点")
+st.info("""
+**「過去30日間の減少」列を必ず含めてください**
 
-- Keepa Proプランで約50トークン/分の補充速度です
-- 処理開始前にトークン残高を自動チェックします
-- 不足時はエラーメッセージが表示されます
-- 残高確認: https://keepa.com/#!api
+Keepa製品ビューアで「列を設定」→「過去30日間の減少」にチェック。
+この列がないと30キーパの値が空になります。
 """)
 
 st.info("""
-**マッチングについて**
+**10,000件制限について**
 
-- 同じEANに複数の商品がある場合、Buy Box価格が最も高い商品が選ばれます
-- JANコード列はヘッダー名（「JAN」を含む列）から自動検出されます
-- 列の位置が異なるExcelでも自動で対応します
+Keepa製品ビューアは1回の検索で最大10,000件です。
+94,000件ある場合は10回に分けてエクスポートし、
+Amaproの②に全ファイルをまとめてアップロードしてください。
 """)
