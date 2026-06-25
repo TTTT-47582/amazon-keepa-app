@@ -111,6 +111,8 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             col_idx["fba_count"] = i
         if "新品アイテム数 FBM" in c and "現在" in c and "fbm_count" not in col_idx:
             col_idx["fbm_count"] = i
+        if "先月の購入" in c and "monthly_sales" not in col_idx:
+            col_idx["monthly_sales"] = i
         if "Imported by Code" in c and "ean" not in col_idx:
             col_idx["ean"] = i
         if "Amazon" in c and "現在価格" in c and "Buy Box" not in c and "amazon_price" not in col_idx:
@@ -180,6 +182,7 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             "amazon_price_usd": amazon_price,
             "amazon_bb_pct_90": amazon_bb_pct,
             "is_amazon_selling": is_amazon_selling,
+            "monthly_sales": si(get(row, "monthly_sales")),
         }
 
         for ean in ean_raw.split(","):

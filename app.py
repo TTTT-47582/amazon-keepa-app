@@ -634,6 +634,7 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
             "Amazon販売": kp.get("is_amazon_selling", False),
             "Amazon価格": kp.get("amazon_price_usd"),
             "AmazonBB%": kp.get("amazon_bb_pct_90"),
+            "月間販売数": kp.get("monthly_sales"),
         })
 
     all_df = pd.DataFrame(items)
@@ -663,6 +664,11 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
         value=True,
         help="Amazon.comが直接販売・Buy Boxを持っている商品を除外",
     )
+    only_monthly_sales = st.checkbox(
+        "📊 月間販売数データがある商品のみ",
+        value=False,
+        help="Keepaで月間販売数（黄色ライン）が表示されている商品に絞り込み",
+    )
 
     # ── フィルタ適用 ──
     filtered = all_df.copy()
@@ -674,6 +680,8 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
         filtered = filtered[filtered["利益率%"].notna() & (filtered["利益率%"] >= margin_min)]
     if exclude_amazon:
         filtered = filtered[~filtered["Amazon販売"]]
+    if only_monthly_sales:
+        filtered = filtered[filtered["月間販売数"].notna() & (filtered["月間販売数"] > 0)]
 
     # ── 結果表示 ──
     st.divider()
@@ -708,7 +716,7 @@ def _show_screening(keepa_data: dict, df, exchange_rate: float):
         lambda x: f"https://www.amazon.com/dp/{x}" if x else ""
     )
     display_cols = ["ASIN", "タイトル", "売価USD", "仕入値", "損益USD", "利益率%",
-                    "FBAセラー", "30日drop", "Amazon"]
+                    "FBAセラー", "30日drop", "月間販売数", "Amazon"]
     st.dataframe(
         filtered[display_cols],
         use_container_width=True,
