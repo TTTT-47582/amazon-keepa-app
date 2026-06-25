@@ -174,7 +174,7 @@ def read_keepa_export_as_results(file_buffer, sheet_name: str | int = 0) -> dict
             "buy_box_seller": str(get(row, "bb_seller") or "").strip(),
             "fba_seller_count": si(get(row, "total_offers")) or si(get(row, "fba_count")) or 0,
             "fbm_seller_count": si(get(row, "fbm_count")) or 0,
-            "sales_rank_drops_30": si(get(row, "drops30")) or si(get(row, "drops90")),
+            "sales_rank_drops_30": si(get(row, "drops30")),
             "package_weight_g": si(get(row, "weight")),
             "total_amazon_fee_usd": total_fee,
             "amazon_price_usd": amazon_price,
