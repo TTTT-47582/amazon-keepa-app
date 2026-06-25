@@ -494,9 +494,9 @@ def generate_sheet3_from_api(
         ws.cell(row=n, column=22, value=V)
         ws.cell(row=n, column=24, value=X if X > 0 else None)
 
-        # 計算値（元Sheet3と同一の計算）
-        ws.cell(row=n, column=23, value=round(W) if W else None)
-        ws.cell(row=n, column=21, value=round(U, 2) if U else None)
+        # 計算値（元Sheet3と同一の計算・丸めなし）
+        ws.cell(row=n, column=23, value=W if W else None)
+        ws.cell(row=n, column=21, value=U if U else None)
 
         if T and T > 0 and V is not None:
             Y = T - U - V
