@@ -191,7 +191,7 @@ def main():
         if use_api:
             env_key = os.getenv("KEEPA_API_KEY", "")
             api_key = st.text_input("Keepa API キー", value=env_key, type="password")
-            max_items = st.number_input("処理上限件数", min_value=10, max_value=5000, value=100, step=50)
+            max_items = st.number_input("処理上限件数", min_value=10, max_value=100000, value=100, step=50)
 
         live_rate, _ = _fetch_exchange_rate()
 
