@@ -328,10 +328,11 @@ def main():
     # APIモード: トークン情報表示
     if use_api:
         process_count = min(unique_jans, max_items)
-        tokens = estimate_tokens(process_count)
+        tokens = estimate_tokens(process_count, use_offers=False)
         st.info(
             f"🔍 処理対象: **{process_count:,} 件**\n\n"
-            f"💰 推定トークン: **{tokens:,}**　｜　⏱ 約{max(tokens // 50, 1)}分"
+            f"💰 推定トークン: **{tokens:,}**　｜　⏱ 約{max(tokens // 50, 1)}分\n\n"
+            f"⚠️ **APIモードはローカル実行を推奨**（Streamlit Cloudではタイムアウトの可能性あり）"
         )
 
     # 為替レート指定（Excel書き出し用）
